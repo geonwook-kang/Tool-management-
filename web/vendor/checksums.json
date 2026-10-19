@@ -1,0 +1,104 @@
+{
+  "files": {
+    "JSZIP-LICENSE.txt": {
+      "package": "jszip@3.10.1",
+      "path": "package/LICENSE.markdown",
+      "sha256": "566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4",
+      "size": 33753
+    },
+    "TESSERACT-BROWSER-NOTICES.txt": {
+      "package": "tesseract.js@5.1.1",
+      "path": "package/dist/tesseract.min.js.LICENSE.txt",
+      "sha256": "cdf963ced7d25a0f98901a547647b4d6e2dbe0197fd78c87a059a87b0e542fe2",
+      "size": 149
+    },
+    "TESSERACT-CORE-LICENSE.txt": {
+      "package": "tesseract.js-core@5.1.1",
+      "path": "package/LICENSE",
+      "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+      "size": 11358
+    },
+    "TESSERACT-LICENSE.txt": {
+      "package": "tesseract.js@5.1.1",
+      "path": "package/LICENSE.md",
+      "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+      "size": 11357
+    },
+    "TESSERACT-WORKER-NOTICES.txt": {
+      "package": "tesseract.js@5.1.1",
+      "path": "package/dist/worker.min.js.LICENSE.txt",
+      "sha256": "45f54171aeaa1d10c0c1a66f374b7bba1f02472b1487fbe892eec04f840002ac",
+      "size": 466
+    },
+    "eng.traineddata.gz": {
+      "package": "@tesseract.js-data/eng@1.0.0",
+      "path": "package/4.0.0_best_int/eng.traineddata.gz",
+      "sha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+      "size": 2952873
+    },
+    "jszip.min.js": {
+      "package": "jszip@3.10.1",
+      "path": "package/dist/jszip.min.js",
+      "sha256": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e",
+      "size": 97630
+    },
+    "kor.traineddata.gz": {
+      "package": "@tesseract.js-data/kor@1.0.0",
+      "path": "package/4.0.0_best_int/kor.traineddata.gz",
+      "sha256": "78c21276ab14c9bb734d83be1055d9fe5469a4e7e977c51ad385be5737e61126",
+      "size": 1572336
+    },
+    "tesseract-core-lstm.wasm.js": {
+      "package": "tesseract.js-core@5.1.1",
+      "path": "package/tesseract-core-lstm.wasm.js",
+      "sha256": "8f04aa0cc81e7bde33f80e92fa01a7a665f0b4884d098acf5de9c7104a11dfaa",
+      "size": 3938277
+    },
+    "tesseract.min.js": {
+      "package": "tesseract.js@5.1.1",
+      "path": "package/dist/tesseract.min.js",
+      "sha256": "a8e29918d098b2b06e1012bdaeffb4aec0445c5d5654709023e0bd1f442a80e8",
+      "size": 66695
+    },
+    "worker.min.js": {
+      "package": "tesseract.js@5.1.1",
+      "path": "package/dist/worker.min.js",
+      "sha256": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
+      "size": 123724
+    }
+  },
+  "format": 1,
+  "packages": {
+    "@tesseract.js-data/eng@1.0.0": {
+      "archiveSha256": "c9bddf2e2f0a214ac7918f3f4a3caf45e09ce8674fe26662ae7787ac8927f7bb",
+      "integrity": "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/@tesseract.js-data/eng/-/eng-1.0.0.tgz"
+    },
+    "@tesseract.js-data/kor@1.0.0": {
+      "archiveSha256": "406e73a4438bd304e6219d28ed6805388a6f504c41f73daed412311055440317",
+      "integrity": "sha512-tepYhsYiRJ8E44R27MHxVteEDDLfYQxuvM6u4JlEHcCYqwpefvI5TGzoMgB67kunOvtyEJYtT5zfJ/6R6FVU9w==",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/@tesseract.js-data/kor/-/kor-1.0.0.tgz"
+    },
+    "jszip@3.10.1": {
+      "archiveSha256": "5117f4a2a645aeb307bf3b829c575ad58135cc97e75291e594532ab5b5b21b23",
+      "integrity": "sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==",
+      "license": "(MIT OR GPL-3.0-or-later)",
+      "tarball": "https://registry.npmjs.org/jszip/-/jszip-3.10.1.tgz"
+    },
+    "tesseract.js-core@5.1.1": {
+      "archiveSha256": "8c1c83c01ecbfcaeb62a5a2d1023ea98162cad082aa47b9c2c39c129847dba8a",
+      "integrity": "sha512-KX3bYSU5iGcO1XJa+QGPbi+Zjo2qq6eBhNjSGR5E5q0JtzkoipJKOUQD7ph8kFyteCEfEQ0maWLu8MCXtvX5uQ==",
+      "license": "Apache-2.0",
+      "tarball": "https://registry.npmjs.org/tesseract.js-core/-/tesseract.js-core-5.1.1.tgz"
+    },
+    "tesseract.js@5.1.1": {
+      "archiveSha256": "0d08b3722256aacfc652d03b68183a9ed3c997b54778842e7db73ff08a6ae81a",
+      "integrity": "sha512-lzVl/Ar3P3zhpUT31NjqeCo1f+D5+YfpZ5J62eo2S14QNVOmHBTtbchHm/YAbOOOzCegFnKf4B3Qih9LuldcYQ==",
+      "license": "Apache-2.0",
+      "tarball": "https://registry.npmjs.org/tesseract.js/-/tesseract.js-5.1.1.tgz"
+    }
+  },
+  "registry": "https://registry.npmjs.org"
+}

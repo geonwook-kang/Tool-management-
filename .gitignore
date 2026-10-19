@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+web/dist/
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+.venv/

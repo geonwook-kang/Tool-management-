@@ -1,0 +1,77 @@
+/* Automatic row selection uses observed OCR evidence, never workbook guesses. */
+(function (global) {
+  'use strict';
+  const normalizeSerial = (value) => String(value == null ? '' : value).normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const normalizeName = (value) => String(value || '').normalize('NFKC').replace(/\s/g, '').toUpperCase();
+  const high = (confidence) => confidence != null && Number.isFinite(Number(confidence)) && Number(confidence) >= 70;
+  function isoDate(value) {
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+    const parts = value.split('-').map(Number), date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    return date.getUTCFullYear() === parts[0] && date.getUTCMonth() + 1 === parts[1] && date.getUTCDate() === parts[2];
+  }
+  function addMonths(value, months) {
+    if (!isoDate(value) || !Number.isInteger(months) || months <= 0 || months > 1200) return '';
+    const parts = value.split('-').map(Number);
+    const date = new Date(Date.UTC(parts[0], parts[1] - 1 + months + 1, 0));
+    date.setUTCDate(Math.min(parts[2], date.getUTCDate()));
+    return date.toISOString().slice(0, 10);
+  }
+  function monthInterval(tool) {
+    if (Number.isInteger(tool.months) && tool.months > 0) return tool.months;
+    const interval = Number(tool.interval), cycle = String(tool.cycle || '').trim().toUpperCase();
+    if (!Number.isInteger(interval) || interval < 1) return null;
+    if (['MONTH', 'MONTHS', '개월', '월'].includes(cycle)) return interval;
+    if (['YEAR', 'YEARS', '년'].includes(cycle)) return interval * 12;
+    return null;
+  }
+  function assess(model, result) {
+    const output = { eligible: false, toolId: '', name: '', serial: '', last: '', due: '', reasons: [], matchMethod: '', dateMethod: '' };
+    const reject = (reason) => { if (!output.reasons.includes(reason)) output.reasons.push(reason); };
+    const tools = model && Array.isArray(model.tools) ? model.tools : [];
+    if (!tools.length) { reject('관리 엑셀을 먼저 선택해 주세요.'); return output; }
+    if (!result || result.failed) { reject('사진 인식을 완료하지 못했습니다.'); return output; }
+    const identity = result.identityEvidence, dates = result.dateEvidence;
+    if (!identity || !dates) { reject('자동 반영에 필요한 문자 인식 근거가 없습니다.'); return output; }
+    const serialMatches = tools.filter((tool) => (identity.serialMatches || []).some((match) => match.toolId === tool.id && normalizeSerial(match.serial) === normalizeSerial(tool.serial)));
+    const nameMatches = tools.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && normalizeName(match.name) === normalizeName(tool.name)));
+    let tool = null;
+    if (serialMatches.length === 1) {
+      tool = serialMatches[0]; output.matchMethod = 'serial';
+      const proof = identity.serialMatches.find((match) => match.toolId === tool.id);
+      if (!high(proof && proof.confidence)) reject('시리얼 번호의 인식 신뢰도가 낮아 확인이 필요합니다.');
+    } else if (serialMatches.length > 1) reject('인식한 시리얼 번호가 여러 툴과 일치합니다.');
+    else if (nameMatches.length === 1) {
+      tool = nameMatches[0]; output.matchMethod = 'name';
+      const proof = identity.nameMatches.find((match) => match.toolId === tool.id);
+      if (!high(proof && proof.confidence)) reject('이름의 인식 신뢰도가 낮아 확인이 필요합니다.');
+      if ((identity.observedSerials || []).some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 읽힌 시리얼 번호가 해당 엔지니어의 툴과 다릅니다.');
+    } else if (nameMatches.length > 1) reject('이 엔지니어에게 툴이 여러 개 있어 시리얼 번호가 필요합니다.');
+    else reject('사진의 이름 또는 시리얼 번호와 정확히 일치하는 툴이 없습니다.');
+    if (tool) {
+      output.toolId = tool.id; output.name = tool.name; output.serial = tool.serial;
+      if ((identity.observedNames || []).some((name) => normalizeName(name) !== normalizeName(tool.name))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
+      if ((identity.observedSerials || []).some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
+      if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
+      if (nameMatches.length && !nameMatches.some((other) => other.id === tool.id)) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
+      if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');
+      if (/폐기|disposed|retired/i.test(String(tool.due || ''))) reject('폐기 처리된 툴은 자동 변경하지 않습니다.');
+      if (Number(tool.photoCount) > 1) reject('이 툴의 사진 위치에 여러 사진이 있어 자동 교체할 수 없습니다.');
+    }
+    if (dates.ambiguous) reject('교정일 또는 다음 교정일이 서로 다르게 읽혔습니다.');
+    if (['labelled', 'repeated-dates'].includes(dates.method) && high(dates.confidence)) {
+      output.last = dates.last; output.due = dates.due; output.dateMethod = dates.method;
+    } else if (tool && !dates.ambiguous && dates.explicitLast && high(dates.lastConfidence) && !dates.explicitDue && !dates.dueLabelSeen && (dates.dates || []).length === 1) {
+      const months = monthInterval(tool), due = months ? addMonths(dates.explicitLast, months) : '';
+      if (due) { output.last = dates.explicitLast; output.due = due; output.dateMethod = 'calculated-cycle'; }
+      else reject('차기 교정일을 읽지 못했고 엑셀의 검교정 주기도 없습니다.');
+    } else reject('교정일·다음 교정일의 라벨과 인식 신뢰도를 확인해야 합니다.');
+    if (output.last && output.due) {
+      if (!isoDate(output.last) || !isoDate(output.due)) reject('유효한 교정 날짜를 읽지 못했습니다.');
+      else if (output.due <= output.last) reject('차기 교정일이 교정일보다 늦어야 합니다.');
+      if (tool && isoDate(tool.last) && output.last < tool.last) reject('사진의 교정일이 기존 기록보다 오래되어 자동 반영하지 않습니다.');
+    }
+    output.eligible = Boolean(tool && output.last && output.due && !output.reasons.length);
+    return output;
+  }
+  global.ToolAutomation = Object.freeze({ assess });
+})(typeof window !== 'undefined' ? window : globalThis);
