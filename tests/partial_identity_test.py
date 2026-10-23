@@ -63,7 +63,9 @@ def policy_checks(page, url, workbook):
         run('dropped_leading_zero_explicitly_partial',{passes:partial(serial.slice(1)),observed:serial.slice(1),eligible:true});
         run('owner_allows_five_digits_at_fifty_percent',{passes:partial(short),owner:true,observed:short,eligible:true});
         run('five_digits_without_owner',{passes:partial(short),observed:short});
-        run('four_digits_with_owner',{passes:partial(serial.slice(-4)),owner:true,observed:serial.slice(-4)});
+        // 4.5 adds the separately corroborated owner/four-digit path.
+        run('four_digits_with_owner',{passes:partial(serial.slice(-4)),owner:true,observed:serial.slice(-4),
+            eligible:true,method:'owner-partial-serial'});
         run('only_one_observation',{passes:partial().slice(0,1)});
         run('one_dropped_zero_observation',{passes:partial(serial.slice(1)).slice(0,1),observed:serial.slice(1)});
         run('same_source_is_not_two_independent_reads',{passes:[

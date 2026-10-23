@@ -1,4 +1,4 @@
-/* XLSX updates stay in the browser. Only selected date cells and label drawings change. */
+/* XLSX updates stay in the browser. Only selected dates and photo slots change. */
 (function (global) {
   'use strict';
   const NS = {
@@ -12,7 +12,8 @@
   const REL = NS.r + '/', EMU = 9525;
   const state = new WeakMap();
   const required = ['Cal Next', 'Cal Last', 'Serial', 'Asset #', 'Label Photo'];
-  const allHeaders = required.concat(['Cal Interval', 'Cal Cycle', 'Manufacturer', 'Model', 'Description']);
+  const allHeaders = required.concat(['Cal Interval', 'Cal Cycle', 'Manufacturer', 'Model', 'Description', 'SMAX Tool Photo']);
+  const photoKind = (update) => update.photoKind === undefined ? 'calibration' : update.photoKind;
   const normHeader = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
   const normalizeSerial = (s) => String(s == null ? '' : s).normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const normalizeName = (s) => String(s == null ? '' : s).normalize('NFC').trim().replace(/\s+/g, ' ');
@@ -187,9 +188,9 @@
         const serial = get('Serial');
         if (!serial) continue;
         const asset = get('Asset #'), name = normalizeName(asset.split('_').pop());
-        const anchors = drawingRecords.flatMap((d) => Array.from(d.doc.documentElement.children).filter((a) => {
+        const picturesAt = (col) => !col ? [] : drawingRecords.flatMap((d) => Array.from(d.doc.documentElement.children).filter((a) => {
           const loc = anchorLocation(a);
-          return loc && loc.row === rowNum && loc.col === headers['Label Photo'] && elements(a, 'pic').length;
+          return loc && loc.row === rowNum && loc.col === col && elements(a, 'pic').length;
         }));
         const interval = get('Cal Interval');
         tools.push(Object.freeze({
@@ -197,7 +198,10 @@
           last: excelDate(get('Cal Last'), date1904), due: excelDate(get('Cal Next'), date1904),
           interval: interval === '' ? '' : Number.isFinite(Number(interval)) ? Number(interval) : interval,
           cycle: get('Cal Cycle'), months: monthInterval(interval, get('Cal Cycle')),
-          manufacturer: get('Manufacturer'), model: get('Model'), description: get('Description'), photoCount: anchors.length
+          manufacturer: get('Manufacturer'), model: get('Model'), description: get('Description'),
+          photoCount: picturesAt(headers['Label Photo']).length,
+          smaxPhotoCount: picturesAt(headers['SMAX Tool Photo']).length,
+          hasSmaxPhotoColumn: !!headers['SMAX Tool Photo']
         }));
       }
     }
@@ -217,17 +221,36 @@
       const tool = model.tools.find((t) => t.id === update.toolId);
       if (!tool) { errors.push('선택한 툴 항목이 엑셀에 없습니다.'); continue; }
       const label = tool.sheet + ' ' + tool.row + '행 (' + tool.serial + ')';
-      if (seen.has(tool.id)) errors.push(label + ': 같은 툴에 사진을 여러 번 반영할 수 없습니다.');
-      seen.add(tool.id);
+      const kind = photoKind(update), slot = tool.id + '\u0000' + kind;
+      if (!['calibration', 'smax'].includes(kind)) { errors.push(label + ': 사진 구분은 검교정 또는 SMAX여야 합니다.'); continue; }
+      if (seen.has(slot)) errors.push(label + ': 같은 툴의 같은 사진 칸에 여러 사진을 반영할 수 없습니다.');
+      seen.add(slot);
       if (!tool.name || normalizeName(update.name) !== tool.name || !normalizeSerial(update.serial) || normalizeSerial(update.serial) !== normalizeSerial(tool.serial)) errors.push(label + ': 사진에서 확인한 이름·시리얼 번호가 엑셀 항목과 다릅니다.');
       if (model.tools.filter((t) => normalizeSerial(t.serial) === normalizeSerial(tool.serial)).length > 1) errors.push(label + ': 같은 시리얼 번호가 엑셀에 여러 번 있어 자동 반영할 수 없습니다.');
       if (/폐기|disposed|retired/i.test(tool.due)) errors.push(label + ': 폐기된 툴은 갱신할 수 없습니다.');
-      if (tool.photoCount > 1) errors.push(label + ': Label Photo 위치에 사진이 여러 장 있어 반영할 대상을 확정할 수 없습니다.');
-      if (!isoDate(update.last) || !isoDate(update.due)) errors.push(label + ': 교정일과 다음 교정일을 올바르게 입력해 주세요.');
-      else {
-        if (update.due <= update.last) errors.push(label + ': 다음 교정일은 교정일보다 뒤여야 합니다.');
-        if (isoDate(tool.last) && update.last < tool.last) errors.push(label + ': 기존 교정일보다 오래된 사진입니다.');
-        if (model.date1904 && update.last < '1904-01-01') errors.push(label + ': 1904년 이전 날짜는 저장할 수 없습니다.');
+      if (kind === 'calibration') {
+        if (tool.photoCount > 1) errors.push(label + ': Label Photo 위치에 사진이 여러 장 있어 반영할 대상을 확정할 수 없습니다.');
+        if (!isoDate(update.last) || !isoDate(update.due)) errors.push(label + ': 교정일과 다음 교정일을 올바르게 입력해 주세요.');
+        else {
+          if (update.due <= update.last) errors.push(label + ': 다음 교정일은 교정일보다 뒤여야 합니다.');
+          if (isoDate(tool.last) && update.last < tool.last) errors.push(label + ': 기존 교정일보다 오래된 사진입니다.');
+          if (model.date1904 && update.last < '1904-01-01') errors.push(label + ': 1904년 이전 날짜는 저장할 수 없습니다.');
+        }
+      } else {
+        if (!tool.hasSmaxPhotoColumn) errors.push(label + ': SMAX Tool Photo 열이 없어 사진을 반영할 수 없습니다.');
+        if (tool.smaxPhotoCount > 1) errors.push(label + ': SMAX Tool Photo 위치에 사진이 여러 장 있어 반영할 대상을 확정할 수 없습니다.');
+        if (update.updateDue !== undefined && typeof update.updateDue !== 'boolean') errors.push(label + ': SMAX 다음 교정일 반영 여부를 확인해 주세요.');
+        if (update.updateDue === true) {
+          if (!isoDate(update.due)) errors.push(label + ': SMAX 다음 교정일을 올바르게 입력해 주세요.');
+          else {
+            const paired = updates.find((other) => other && other.toolId === tool.id && photoKind(other) === 'calibration');
+            const effectiveLast = paired && isoDate(paired.last) ? paired.last : tool.last;
+            if (isoDate(effectiveLast) && update.due <= effectiveLast) errors.push(label + ': SMAX 다음 교정일은 적용할 교정일보다 뒤여야 합니다.');
+            if (isoDate(tool.due) && update.due < tool.due) errors.push(label + ': SMAX 다음 교정일이 기존 다음 교정일보다 오래되었습니다.');
+            if (model.date1904 && update.due < '1904-01-01') errors.push(label + ': 1904년 이전 날짜는 저장할 수 없습니다.');
+            if (paired && paired.due !== update.due) errors.push(label + ': 검교정 사진과 SMAX 사진의 다음 교정일이 다릅니다.');
+          }
+        }
       }
       const bytes = update.photoBytes;
       if (!(bytes instanceof Uint8Array) || !bytes.length) errors.push(label + ': 반영할 사진이 없습니다.');
@@ -287,7 +310,7 @@
     const ratio = Math.min(cx / width, cy / height);
     return { cx: Math.max(1, Math.round(width * ratio)), cy: Math.max(1, Math.round(height * ratio)) };
   }
-  function buildAnchor(doc, tool, col, relId, size, oldAnchor) {
+  function buildAnchor(doc, tool, col, relId, size, oldAnchor, kind) {
     const anchor = doc.createElementNS(NS.xdr, 'xdr:oneCellAnchor'), oldFrom = oldAnchor && child(oldAnchor, 'from');
     if (oldFrom) anchor.appendChild(oldFrom.cloneNode(true));
     else {
@@ -301,7 +324,7 @@
     else {
       pic = doc.createElementNS(NS.xdr, 'xdr:pic');
       const nv = append(doc, pic, NS.xdr, 'xdr:nvPicPr'), ids = elements(doc, 'cNvPr').map((n) => Number(n.getAttribute('id')) || 0);
-      append(doc, nv, NS.xdr, 'xdr:cNvPr', null, { id: Math.max(0, ...ids) + 1, name: 'Tool Label ' + tool.row });
+      append(doc, nv, NS.xdr, 'xdr:cNvPr', null, { id: Math.max(0, ...ids) + 1, name: (kind === 'smax' ? 'Tool SMAX ' : 'Tool Label ') + tool.row });
       const cnv = append(doc, nv, NS.xdr, 'xdr:cNvPicPr'); append(doc, cnv, NS.a, 'a:picLocks', null, { noChangeAspect: 1 });
       const fill = append(doc, pic, NS.xdr, 'xdr:blipFill'); append(doc, fill, NS.a, 'a:blip');
       const stretch = append(doc, fill, NS.a, 'a:stretch'); append(doc, stretch, NS.a, 'a:fillRect');
@@ -331,14 +354,22 @@
     const changedSheets = new Set(), changedDrawings = new Set();
     for (const update of updates) {
       const tool = fresh.tools.find((t) => t.id === update.toolId), sheet = data.sheets.find((s) => s.path + ':' + tool.row === tool.id);
-      setDateCell(sheet, tool.row, sheet.headers['Cal Last'], dateSerial(update.last, data.date1904), update.last);
-      setDateCell(sheet, tool.row, sheet.headers['Cal Next'], dateSerial(update.due, data.date1904), update.due);
-      changedSheets.add(sheet);
+      const kind = photoKind(update), photoColumn = sheet.headers[kind === 'smax' ? 'SMAX Tool Photo' : 'Label Photo'];
+      // Calibration retains the legacy two-date update. A SMAX screenshot
+      // cannot supply Cal Last, and photo-only SMAX updates touch neither date.
+      if (kind === 'calibration') {
+        setDateCell(sheet, tool.row, sheet.headers['Cal Last'], dateSerial(update.last, data.date1904), update.last);
+        setDateCell(sheet, tool.row, sheet.headers['Cal Next'], dateSerial(update.due, data.date1904), update.due);
+        changedSheets.add(sheet);
+      } else if (update.updateDue === true) {
+        setDateCell(sheet, tool.row, sheet.headers['Cal Next'], dateSerial(update.due, data.date1904), update.due);
+        changedSheets.add(sheet);
+      }
       let drawing, oldAnchor;
       for (const d of sheet.drawings) {
         const found = Array.from(d.doc.documentElement.children).find((anchor) => {
           const location = anchorLocation(anchor);
-          return location && location.row === tool.row && location.col === sheet.headers['Label Photo'] && elements(anchor, 'pic').length;
+          return location && location.row === tool.row && location.col === photoColumn && elements(anchor, 'pic').length;
         });
         if (found) { drawing = d; oldAnchor = found; break; }
       }
@@ -353,19 +384,21 @@
         node.setAttributeNS(NS.r, 'r:id', id);
         const before = Array.from(sheet.doc.documentElement.children).find((c) => ['legacyDrawing', 'legacyDrawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems', 'tableParts', 'extLst'].includes(c.localName));
         sheet.doc.documentElement.insertBefore(node, before || null); zip.file(relPath(sheet.path), serialize(sheet.relDoc)); ensureDrawingType(types, path);
+        changedSheets.add(sheet);
       }
       if (!drawing.relDoc) drawing.relDoc = blankRelationships();
       const extension = update.photoExtension === 'jpeg' ? 'jpg' : update.photoExtension;
-      let imageIndex = 1; while (zip.file('xl/media/tool-label-' + imageIndex + '.' + extension)) imageIndex++;
-      const imagePath = 'xl/media/tool-label-' + imageIndex + '.' + extension;
+      const mediaPrefix = kind === 'smax' ? 'tool-smax-' : 'tool-label-';
+      let imageIndex = 1; while (zip.file('xl/media/' + mediaPrefix + imageIndex + '.' + extension)) imageIndex++;
+      const imagePath = 'xl/media/' + mediaPrefix + imageIndex + '.' + extension;
       zip.file(imagePath, update.photoBytes); ensureContentType(types, extension);
       const newId = freshRelationship(drawing.relDoc, REL + 'image', relative(drawing.path, imagePath));
-      const size = fitSize(oldAnchor, Number(update.photoWidth), Number(update.photoHeight)), anchor = buildAnchor(drawing.doc, tool, sheet.headers['Label Photo'], newId, size, oldAnchor);
+      const size = fitSize(oldAnchor, Number(update.photoWidth), Number(update.photoHeight)), anchor = buildAnchor(drawing.doc, tool, photoColumn, newId, size, oldAnchor, kind);
       if (oldAnchor) oldAnchor.parentNode.replaceChild(anchor, oldAnchor);
       else {
         drawing.doc.documentElement.appendChild(anchor);
         const row = sheet.rows.find((r) => Number(r.getAttribute('r')) === tool.row), oldHeight = Number(row.getAttribute('ht') || 15);
-        if (oldHeight < size.cy / EMU * 0.75) { row.setAttribute('ht', String(Math.ceil(size.cy / EMU * 0.75))); row.setAttribute('customHeight', '1'); }
+        if (oldHeight < size.cy / EMU * 0.75) { row.setAttribute('ht', String(Math.ceil(size.cy / EMU * 0.75))); row.setAttribute('customHeight', '1'); changedSheets.add(sheet); }
       }
       changedDrawings.add(drawing);
     }

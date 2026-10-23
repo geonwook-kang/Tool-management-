@@ -25,6 +25,11 @@
     return null;
   }
   function assess(model, result) {
+    if (result && /smax/i.test(result.documentType || '')) {
+      if (global.ToolSMAX && typeof global.ToolSMAX.assess === 'function') return global.ToolSMAX.assess(model, result);
+      return { eligible: false, toolId: '', name: '', serial: '', last: '', due: '', photoKind: 'smax', updateDue: false,
+        matchMethod: '', dateMethod: '', reasons: ['SMAX 화면 처리 모듈을 불러오지 못했습니다. 최신 프로그램으로 다시 열어 주세요.'] };
+    }
     const output = { eligible: false, toolId: '', name: '', serial: '', last: '', due: '', reasons: [], matchMethod: '', dateMethod: '' };
     const reject = (reason) => { if (!output.reasons.includes(reason)) output.reasons.push(reason); };
     const tools = model && Array.isArray(model.tools) ? model.tools : [];
@@ -53,18 +58,21 @@
       return source && !/^(?:text|unknown|null|undefined)$/i.test(source)
         && !/^(?:date|label)[-_]/i.test(source) && !/(?:^|[-_])incomplete(?:$|[-_])/i.test(source) ? source : '';
     };
+    function proofSources(proof) {
+      const listed = new Set((Array.isArray(proof.passSources) ? proof.passSources : []).map(usableSource).filter(Boolean));
+      return (Array.isArray(proof.sourceReadings) ? proof.sourceReadings : []).filter((reading) => {
+        const source = usableSource(reading && reading.source);
+        return source && listed.has(source) && high(reading.confidence);
+      }).map((reading) => usableSource(reading.source));
+    }
     function actualSources(value) {
       const sources = new Set();
       for (const proof of observedSerialEvidence) {
         if (proof.learned || !high(proof.confidence) || !['standalone', 'labelled', 'workbook'].includes(proof.kind)
           || normalizeSerial(proof.serial) !== value) continue;
-        const listed = new Set((Array.isArray(proof.passSources) ? proof.passSources : []).map(usableSource).filter(Boolean));
         // The aggregate maximum and passSources cannot prove that each pass
         // read the fragment confidently. Older evidence therefore stays pending.
-        for (const reading of Array.isArray(proof.sourceReadings) ? proof.sourceReadings : []) {
-          const source = usableSource(reading && reading.source);
-          if (source && listed.has(source) && high(reading.confidence)) sources.add(source);
-        }
+        for (const source of proofSources(proof)) sources.add(source);
       }
       return Array.from(sources);
     }
@@ -101,9 +109,52 @@
     const partialMatches = Array.from(new Set(observedSerialEvidence.map((proof) => normalizeSerial(proof.serial))))
       .map((fragment) => resolvePartialSerial(fragment)).filter(Boolean);
     const partialTools = tools.filter((candidate) => partialMatches.some((match) => match.tool.id === candidate.id));
+    function ownerFragmentState() {
+      const names = Array.from(new Set(tools.filter(exactOwner).map((candidate) => normalizeName(candidate.name))));
+      const empty = { matches: [], target: null, blocked: false };
+      if (names.length !== 1) return empty;
+      const evidence = Array.isArray(identity.observedSerialFragments) ? identity.observedSerialFragments : [];
+      const observed = new Map();
+      for (const proof of evidence) {
+        const fragment = normalizeSerial(proof.fragment);
+        // This separate channel contains actual four-digit tokens, never a
+        // guessed edit, a substring extracted from a longer reading, or a year.
+        if (proof.learned || !high(proof.confidence) || !/^\d{4}$/.test(fragment) || /^20\d{2}$/.test(fragment)) continue;
+        if (!observed.has(fragment)) observed.set(fragment, new Set());
+        for (const source of proofSources(proof)) observed.get(fragment).add(source);
+      }
+      const fragments = Array.from(observed).filter(([, sources]) => sources.size >= 2).map(([fragment]) => fragment);
+      if (!fragments.length) return empty;
+      const ownerTools = tools.filter((candidate) => normalizeName(candidate.name) === names[0]);
+      const readings = fragments.map((fragment) => {
+        // Keep disposed tools in this comparison. A calibration interval must
+        // never break a tie between two serials containing the same fragment.
+        const known = tools.some((candidate) => normalizeSerial(candidate.serial) === fragment);
+        const candidates = ownerTools.filter((candidate) => {
+          const canonical = normalizeSerial(candidate.serial);
+          return canonical.length > fragment.length && canonical.includes(fragment);
+        });
+        return { fragment, candidates, known };
+      });
+      const present = readings.filter((reading) => reading.candidates.length);
+      const ambiguous = readings.some((reading) => reading.known || reading.candidates.length > 1);
+      const targets = Array.from(new Set(present.map((reading) => reading.candidates[0].id)));
+      const blocked = ambiguous || targets.length > 1 || (present.length > 0 && present.length !== readings.length);
+      if (blocked || !present.length) return { matches: [], target: null, blocked };
+      const target = present[0].candidates[0];
+      if (present.some((reading) => reading.fragment.length / normalizeSerial(target.serial).length < 0.4)) return empty;
+      return { matches: present.map((reading) => ({ tool: target, fragment: reading.fragment })), target, blocked: false };
+    }
+    const ownerFragments = ownerFragmentState();
+    const ownerFragmentMatch = ownerFragments.target && clearDatePair
+      && addMonths(dates.last, monthInterval(ownerFragments.target)) === dates.due ? ownerFragments : null;
     const resolveSerial = (serial, target) => {
       if ((identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
         && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial))) return true;
+      // Only this exact, separately verified four-digit observation may be
+      // reconciled with an explicit S/N reading. Other full serial conflicts stay.
+      if (ownerFragmentMatch && ownerFragmentMatch.target.id === target.id
+        && ownerFragmentMatch.matches.some((match) => match.fragment === normalizeSerial(serial))) return true;
       const partial = resolvePartialSerial(serial) || resolvePartialSerial(serial, { exactConfirmation: true });
       return !!partial && partial.tool.id === target.id;
     };
@@ -118,6 +169,7 @@
     } else if (serialMatches.length > 1) reject('인식한 시리얼 번호가 여러 툴과 일치합니다.');
     else if (partialTools.length === 1) { tool = partialTools[0]; output.matchMethod = 'partial-serial'; }
     else if (partialTools.length > 1) reject('부분 시리얼 번호가 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
+    else if (ownerFragmentMatch) { tool = ownerFragmentMatch.target; output.matchMethod = 'owner-partial-serial'; }
     else if (nameMatches.length === 1 && tools.filter((other) => normalizeName(other.name) === normalizeName(nameMatches[0].name)).length === 1) {
       tool = nameMatches[0];
       const proof = identity.nameMatches.find((match) => match.toolId === tool.id);
@@ -135,6 +187,10 @@
     else reject('사진의 이름 또는 시리얼 번호와 정확히 일치하는 툴이 없습니다.');
     if (tool) {
       output.toolId = tool.id; output.name = tool.name; output.serial = tool.serial;
+      if (['name', 'remembered-name', 'name-cycle', 'owner-partial-serial'].includes(output.matchMethod)) {
+        if (ownerFragments.blocked) reject('같은 담당자의 부분 번호가 여러 툴을 가리키거나 서로 다릅니다. 주기만으로 선택하지 않습니다.');
+        if (ownerFragments.target && ownerFragments.target.id !== tool.id) reject('사진의 부분 번호와 검교정 주기가 서로 다른 툴을 가리킵니다.');
+      }
       if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name) && !resolveName(name, tool))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
       if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial) && !resolveSerial(serial, tool))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');

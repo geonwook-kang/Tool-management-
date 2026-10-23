@@ -207,7 +207,10 @@ def main():
                         if not any(item["source"].startswith("identity-probe-panel-") and expected["serial"] in item["text"] for item in result.get("passes", [])):
                             failures.append(case["kind"] + ": serial was not recovered from an independent panel")
                     if not case["synthetic"]:
-                        assert not evidence["prepared"], "The actual system screenshot lacks Cal Last"
+                        # 4.5 treats this as a SMAX image, which needs its
+                        # labelled serial rather than both calibration dates.
+                        assert result.get("documentType") == "smax" and result.get("last") == "", result
+                        assert evidence["prepared"] and evidence["assessment"].get("photoKind") == "smax", evidence
                     if evidence["prepared"]:
                         assessment = evidence["assessment"] or {}
                         assert assessment.get("eligible") and assessment.get("toolId") == target_id, assessment

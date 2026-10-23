@@ -7,11 +7,13 @@ const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>st
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','owner-partial-serial':'이름·부분 번호·엑셀 교정 주기 일치','smax-serial':'SMAX 등록 시리얼 일치','smax-due':'SMAX 차기 교정일 → Cal Next','unchanged-dates':'교정 날짜 유지','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const photoKind=p=>p?.photoKindOverride||p?.draft?.photoKind||p?.review?.photoKind||p?.assessment?.photoKind||(/smax/i.test(p?.result?.documentType||'')?'smax':'calibration');
+const photoSlot=p=>photoKind(p)==='smax'?'SMAX Tool Photo':'Label Photo';
 let seq=0,timer,restoreTask=Promise.resolve();
 const memoryEnabled=()=>$('remember-matches').checked;
 function refreshMemory(){const info=window.ToolProfiles?.inspect();$('memory-status').textContent=info?`기억한 툴 ${info.count}개 · 인식 패턴 ${info.aliasCount}개${!memoryEnabled()?' · 활용 꺼짐':!info.persistent?' · 이번 실행 중에만 기억':''}`:'매칭 기억 기능을 준비하지 못했습니다. 기본 인식은 계속 사용할 수 있습니다.';$('clear-matches').disabled=state.busy||state.preparing||state.source.saving||!(info?.count||info?.conflictCount);$('remember-matches').disabled=state.busy||state.preparing||state.source.saving;}
-function rememberApproved(entries){if(!memoryEnabled()||!window.ToolProfiles)return;for(const {p} of entries)try{ToolProfiles.remember(state.model,p);}catch(_){}refreshMemory();}
+function rememberApproved(entries){if(!memoryEnabled()||!window.ToolProfiles)return;for(const {p} of entries)if(photoKind(p)!=='smax')try{ToolProfiles.remember(state.model,p);}catch(_){}refreshMemory();}
 const pendingRows=()=>approved().filter(p=>!state.source.connected||!p.saved);
 function sourceFailure(error){const info=ToolConnectedFile.inspect();state.source.error=error.message;state.source.needsPermission=!!info.needsPermission;state.source.needsReconnect=!!info.needsReconnect;if(info.needsPermission||info.needsReconnect)state.source.connected=false;}
 
@@ -92,7 +94,7 @@ function refresh(){
  const isAuto=current()?.approval==='automatic';$('manual-confirm-row').hidden=isAuto;$('save-review').hidden=isAuto;
  if(state.preparedResult){const a=$('automatic-result-download');a.href=state.preparedResult.url;a.download=state.preparedResult.name;a.textContent=state.source.connected&&!state.source.error?'연결 파일에 저장 완료 · 사본 다운로드 (선택)':'자동 반영된 엑셀 저장 ↓';a.hidden=false;}
 }
-function saveDraft(){const p=current();if(p&&state.model&&!$('review-panel').hidden&&!$('review-form').hidden)p.draft=Object.fromEntries(['name','serial','last','due'].map(k=>[k,$(k).value]).concat([['toolId',$('tool-select').value]]));}
+function saveDraft(){const p=current();if(p&&state.model&&!$('review-panel').hidden&&!$('review-form').hidden)p.draft={...p.draft,...Object.fromEntries(['name','serial','last','due'].map(k=>[k,$(k).value])),toolId:$('tool-select').value,photoKind:$('photo-kind').value,updateDue:$('photo-kind').value!=='smax'||$('smax-update-due').checked};}
 function schedule(){clearTimeout(timer);if(approved().length)timer=setTimeout(prepareResult,450);}
 function changed(){saveDraft();if(current())current().saved=null;const p=current();if(p){p.review=null;p.approval=null;p.edited=true;$('confirm').checked=false;$('draft-note').textContent='수정한 값을 확인한 뒤 보정한 내용 반영을 누르세요.';$('ocr-warning').classList.remove('auto-success');$('ocr-warning').textContent='입력값이 변경되어 이전 자동 반영을 취소했습니다.';}invalidate();refresh();schedule();}
 function renderExisting(){const t=state.model?.tools.find(t=>t.id===$('tool-select').value);$('existing').textContent=t?`엑셀 위치: ${t.sheet} ${t.row}행\n기존 Cal Last: ${t.last||'미등록'} · Cal Next: ${t.due||'미등록'}\n주기: ${t.interval} ${t.cycle}`:'불확실한 사진만 항목과 날짜를 직접 확인하세요.';}
@@ -105,7 +107,14 @@ function render(){
  const recommended=p.result?.candidateIds||[],d=p.draft||{},tools=[...state.model.tools].sort((a,b)=>Number(recommended.includes(b.id))-Number(recommended.includes(a.id)));
  $('tool-select').innerHTML='<option value="">확인이 필요한 툴 선택</option>'+tools.map(t=>`<option value="${esc(t.id)}">${recommended.includes(t.id)?'일치 후보 · ':''}${esc(t.sheet)} · ${esc(t.name)} · ${esc(t.serial)} (행 ${t.row})</option>`).join('');
  $('tool-select').value=d.toolId||'';for(const k of ['name','serial','last','due'])$(k).value=d[k]||'';$('confirm').checked=!!p.review;
- $('draft-note').textContent=p.approval==='automatic'?`✓ Cal Last: ${p.draft.last} · Cal Next: ${p.draft.due} · 사진 자동 반영`:p.review?'✓ 보정한 값을 반영했습니다.':'';
+ const kind=photoKind(p),smax=kind==='smax';$('photo-kind').value=kind;$('smax-date-option').hidden=!smax;$('smax-update-due').checked=!!d.updateDue;
+ $('last').readOnly=smax;$('last').required=!smax;$('due').readOnly=smax&&!d.updateDue;$('due').required=!smax||!!d.updateDue;$('calculate-due').hidden=smax;
+ $('last-label').textContent=smax?'기존 Cal Last · 유지':'교정일자 · Cal Last';
+ const ownerReadings=p.result?.smaxEvidence?.ownerEnglish;
+ const english=p.assessment?.ownerEnglish||(Array.isArray(ownerReadings)?ownerReadings.find(r=>r.value)?.value:typeof ownerReadings==='string'?ownerReadings:'')||'';
+ $('photo-kind-note').textContent=`저장 위치: ${photoSlot(p)}`+(smax&&english?` · SMAX 담당자: ${english} · 등록 담당자: ${d.name||'시리얼 확인 후 연결'}`:'');
+ $('confirm-description').textContent=smax?'사진의 시리얼·SMAX 저장 위치와 선택한 차기일 반영 여부를 확인했습니다.':'사진과 보정한 이름·시리얼·날짜가 일치함을 확인했습니다.';
+ $('draft-note').textContent=p.approval==='automatic'?(smax?`✓ SMAX Tool Photo 자동 반영 · ${d.updateDue?'Cal Next: '+d.due:'교정 날짜 유지'}`:`✓ Cal Last: ${p.draft.last} · Cal Next: ${p.draft.due} · 사진 자동 반영`):p.review?'✓ 보정한 값을 반영했습니다.':'';
  $('ocr-warning').textContent=p.error||(p.approval==='automatic'?`자동 식별: ${methods[p.assessment.matchMethod]||p.assessment.matchMethod} · ${methods[p.assessment.dateMethod]||p.assessment.dateMethod}`:(p.assessment?.reasons||p.result?.warnings||[]).join('\n')||'불확실한 사진만 보정하세요.');
  $('ocr-warning').classList.toggle('auto-success',p.approval==='automatic');renderExisting();
  for(const el of $('review-panel').querySelectorAll('input,select,button'))el.disabled=state.busy;
@@ -136,19 +145,23 @@ async function addPhotos(files){
  if(automatic()&&state.model&&ids.length)await recognize(ids);else status(state.model?'사진이 등록되었습니다. 인식 또는 수동 반영을 선택하세요.':'사진이 등록되었습니다. 엑셀을 선택하면 자동으로 처리합니다.','success');if(errors.length)status(errors.join('\n'),'error');
 }
 function applyOCR(p,result){
- if(memoryEnabled()&&window.ToolProfiles)try{result=ToolProfiles.enhance(state.model,result);}catch(_){}
+ if(!/smax/i.test(result.documentType||'')&&memoryEnabled()&&window.ToolProfiles)try{result=ToolProfiles.enhance(state.model,result);}catch(_){}
  p.result=result;p.error=null;p.edited=false;p.manualEntry=false;p.assessment=ToolAutomation.assess(state.model,result);
  const match=state.model.tools.find(t=>t.id===p.assessment.toolId)||(result.candidateIds?.length===1?state.model.tools.find(t=>t.id===result.candidateIds[0]):null);
- p.draft={toolId:match?.id||'',name:result.name||match?.name||'',serial:result.serial||match?.serial||'',last:p.assessment.last||result.last||'',due:p.assessment.due||result.due||''};p.review=null;p.approval=null;
+ p.photoKindOverride=null;const smax=/smax/i.test(result.documentType||'');
+ p.draft={toolId:match?.id||'',name:(smax?p.assessment.name:result.name)||match?.name||'',serial:(smax?p.assessment.serial:result.serial)||match?.serial||'',last:p.assessment.last||result.last||'',due:p.assessment.due||result.due||'',photoKind:p.assessment.photoKind||(smax?'smax':'calibration'),updateDue:smax?!!p.assessment.updateDue:true};p.review=null;p.approval=null;
 }
 function reconcile(){
  if(!state.model||!automatic())return;
  for(const p of state.photos)if(p.result&&!p.edited&&!p.saved&&p.approval!=='manual'){p.assessment=ToolAutomation.assess(state.model,p.result);p.review=null;p.approval=null;}
  const eligible=state.photos.filter(p=>p.assessment?.eligible&&!p.edited&&!p.saved&&p.approval!=='manual');
  for(const p of eligible){const a=p.assessment;
- if(eligible.filter(q=>q.assessment.toolId===a.toolId).length>1||state.photos.some(q=>q.approval==='manual'&&!q.saved&&q.review.toolId===a.toolId)){p.assessment={...a,eligible:false,reasons:['같은 툴의 사진이 여러 장입니다. 중복 사진을 제거하거나 직접 확인해 주세요.']};continue;}
- const update={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due,...p.image},errors=ToolWorkbook.validate(state.model,update);
- if(errors.length){p.assessment={...a,eligible:false,reasons:errors};continue;}p.draft={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due};p.review=update;p.approval='automatic';
+ const kind=a.photoKind||'calibration',others=eligible.filter(q=>q!==p&&q.assessment.toolId===a.toolId),manual=state.photos.filter(q=>q.approval==='manual'&&!q.saved&&q.review.toolId===a.toolId);
+ if(others.some(q=>(q.assessment.photoKind||'calibration')===kind)||manual.some(q=>(q.review.photoKind||'calibration')===kind)){p.assessment={...a,eligible:false,reasons:['같은 툴의 같은 사진 칸에 여러 장이 있습니다. 중복 사진을 제거하거나 직접 확인해 주세요.']};continue;}
+ const writesDue=kind!=='smax'||a.updateDue===true;
+ if(writesDue&&(others.some(q=>((q.assessment.photoKind||'calibration')!=='smax'||q.assessment.updateDue===true)&&q.assessment.due!==a.due)||manual.some(q=>((q.review.photoKind||'calibration')!=='smax'||q.review.updateDue===true)&&q.review.due!==a.due))){p.assessment={...a,eligible:false,reasons:['같은 툴의 라벨과 SMAX 차기 교정일이 다릅니다. 날짜를 확인해 주세요.']};continue;}
+ const update={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due,photoKind:kind,updateDue:writesDue,...p.image},errors=ToolWorkbook.validate(state.model,update);
+ if(errors.length){p.assessment={...a,eligible:false,reasons:errors};continue;}p.draft={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due,photoKind:kind,updateDue:writesDue};p.review=update;p.approval='automatic';
  }
 }
 async function recognize(ids){
@@ -176,7 +189,7 @@ async function prepareResult(){
   try{
    const saved=await ToolConnectedFile.save({bytes,expectedVersion:sourceVersion,verifyCurrent:()=>revision===state.revision&&sourceEpoch===state.source.epoch});
    state.source.version=saved.version;state.source.saveCount++;state.source.error='';state.source.hasBackup=true;state.source.savedAt=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());state.model=updatedModel;
-   for(const entry of entries)entry.p.saved={...entry.meta,last:entry.update.last,due:entry.update.due,version:saved.version};
+   for(const entry of entries){const after=updatedModel.tools.find(t=>t.id===entry.update.toolId)||entry.meta;entry.p.saved={...after,photoKind:entry.update.photoKind||'calibration',version:saved.version};if(entry.update.photoKind==='smax')Object.assign(entry.p.draft,{last:after.last,due:after.due});}
    rememberApproved(entries);
    status('연결한 이 PC의 엑셀에 저장했습니다. OneDrive 동기화는 별도로 진행됩니다.','success');
   }catch(e){sourceFailure(e);status('연결 파일 저장 확인 필요: '+e.message+' 수정본 다운로드는 사용할 수 있습니다.','error');}
@@ -191,11 +204,31 @@ async function saveReview(e){
  }catch(e){p.review=null;p.approval=null;invalidate();refresh();schedule();status(e.message,'error');}
 }
 function download(blob,name){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+async function downloadDiagnostics(){
+ const p=current();if(!p||state.busy||state.source.saving)return;
+ const button=$('download-diagnostics');button.disabled=true;
+ try{
+  const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
+  const r=p.result||{},report={schema:1,programVersion:'4.5',createdAt:new Date().toISOString(),
+   photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
+   ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
+    engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
+    error:r.error||'',code:r.code||'',identityEvidence:r.identityEvidence||null,dateEvidence:r.dateEvidence||null,
+    passes:r.passes||[]},assessment:p.assessment||null,processing:{approval:p.approval||null,saved:!!p.saved}};
+  const zip=new JSZip();zip.file('original.'+extension,original);zip.file('recognition.json',JSON.stringify(report,null,2));
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+  download(blob,'Tool-Recognition-Diagnostics.zip');status('선택한 원본 사진과 인식 결과를 담은 진단 ZIP 저장을 요청했습니다. 이 ZIP을 첨부하면 같은 사진과 신뢰도로 문제를 확인할 수 있습니다.','success');
+ }catch(e){status('인식 진단 ZIP을 저장하지 못했습니다: '+e.message,'error');}
+ finally{button.disabled=state.busy||state.source.saving;}
+}
 $('workbook').onchange=e=>readWorkbook(e.target.files[0]);$('photos').onchange=e=>addPhotos([...e.target.files]);
 $('remember-matches').onchange=()=>{try{localStorage.setItem('tool-manager-match-memory-enabled',String(memoryEnabled()));}catch(_){}refreshMemory();status(memoryEnabled()?'확인된 매칭을 기억하고 다음 사진에 활용합니다.':'다음에 추가하거나 다시 인식하는 사진부터 매칭 기억 활용을 끕니다.');};
 $('clear-matches').onclick=()=>{if(state.busy||state.preparing||state.source.saving)return;const info=window.ToolProfiles?.clear();refreshMemory();status(info?.error||'기억한 인식 패턴을 지웠습니다. 다음 사진부터 새로 기억합니다.',info?.error?'error':'');};
 $('automatic-mode').onchange=()=>{if(automatic()&&state.model&&state.photos.length)recognize(state.photos.filter(p=>!p.review).map(p=>p.id));else refresh();};
 $('recognize-all').onclick=()=>recognize(state.photos.filter(p=>!p.review).map(p=>p.id));$('recognize-one').onclick=()=>current()&&recognize([current().id]);
+$('download-diagnostics').onclick=downloadDiagnostics;
+$('photo-kind').onchange=()=>{const p=current();if(!p)return;p.photoKindOverride=$('photo-kind').value;if(p.photoKindOverride==='smax'){$('smax-update-due').checked=false;const tool=state.model?.tools.find(t=>t.id===$('tool-select').value);$('last').value=tool?.last||'';}changed();render();};
+$('smax-update-due').onchange=()=>{changed();render();};
 $('retry-engine').onclick=()=>current()&&recognize([current().id]);
 $('manual-entry-toggle').onclick=()=>{const p=current();if(!p||state.busy||state.source.saving)return;p.manualEntry=!p.manualEntry;render();};
 $('cancel-recognition').onclick=()=>{state.cancelRequested=true;ToolOCR.cancel?.();status('인식을 중지하는 중입니다…');};
@@ -205,7 +238,7 @@ for(const k of ['name','serial','last','due'])$(k).oninput=changed;
 $('confirm').onchange=()=>{if(!$('confirm').checked&&current()){current().review=null;current().approval=null;current().edited=true;invalidate();refresh();schedule();}};
 $('calculate-due').onclick=()=>{try{const t=state.model?.tools.find(t=>t.id===$('tool-select').value);if(!t||!$('last').value)throw new Error('툴 항목과 교정일을 입력해 주세요.');const months=ToolWorkbook.monthInterval(t.interval,t.cycle),due=months?ToolWorkbook.addMonths($('last').value,months):'';if(!due)throw new Error('엑셀 주기로 날짜를 계산할 수 없습니다.');$('due').value=due;changed();}catch(e){status(e.message,'error');}};
 $('review-form').onsubmit=saveReview;$('export').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;if(!state.preparedResult)await prepareResult();if(!state.preparedResult)return;download(state.preparedResult.blob,state.preparedResult.name);status('수정본 저장을 요청했습니다. 확인 필요 사진은 제외했습니다.','success');};
-$('download-log').onclick=()=>{const changes=approved().map(p=>{const u=p.review,t=p.saved||state.model.tools.find(t=>t.id===u.toolId)||{};return {photo:p.file.name,processing:p.approval,sheet:t.sheet,row:t.row,name:u.name,serial:u.serial,last:u.last,due:u.due,previousLast:t.last,previousDue:t.due};}),pending=state.photos.filter(p=>!p.review).map(p=>({photo:p.file.name,reasons:p.assessment?.reasons||[p.error||'대기 중']}));download(new Blob([JSON.stringify({workbook:state.workbookName,createdAt:new Date().toISOString(),changes,pending},null,2)],{type:'application/json'}),'툴_변경내역.json');};
+$('download-log').onclick=()=>{const changes=approved().map(p=>{const u=p.review,t=p.saved||state.model.tools.find(t=>t.id===u.toolId)||{};return {photo:p.file.name,processing:p.approval,photoKind:u.photoKind||'calibration',updateDue:u.photoKind!=='smax'||u.updateDue===true,sheet:t.sheet,row:t.row,name:u.name,serial:u.serial,last:u.last,due:u.due,previousLast:t.last,previousDue:t.due};}),pending=state.photos.filter(p=>!p.review).map(p=>({photo:p.file.name,reasons:p.assessment?.reasons||[p.error||'대기 중']}));download(new Blob([JSON.stringify({workbook:state.workbookName,createdAt:new Date().toISOString(),changes,pending},null,2)],{type:'application/json'}),'툴_변경내역.json');};
 window.addEventListener('beforeunload',e=>{if(state.photos.length){e.preventDefault();e.returnValue='';}});
 $('connect-onedrive').onclick=()=>connectSource(false);$('reconnect-onedrive').onclick=()=>connectSource(true);$('retry-connected-save').onclick=retrySource;
 $('disconnect-onedrive').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;await ToolConnectedFile.disconnect();state.source.epoch++;Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,error:'',name:'',version:'',savedAt:''});refresh();render();status('자동 저장 연결을 해제했습니다. 이후 결과는 수정본으로 저장합니다.');};
@@ -217,7 +250,7 @@ try{setCloudLink(localStorage.getItem(linkKey)||'');}catch(_){}
 try{$('remember-matches').checked=localStorage.getItem('tool-manager-match-memory-enabled')!=='false';}catch(_){}
 window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult,connectSource,retrySource};refresh();
 restoreTask=restoreSource();
-const missing=['ToolWorkbook','ToolOCR','ToolAutomation','ToolRuntime','ToolConnectedFile'].filter(k=>!window[k]);
+const missing=['ToolWorkbook','ToolSMAX','ToolOCR','ToolAutomation','ToolRuntime','ToolConnectedFile'].filter(k=>!window[k]);
 if(missing.length)status('실행 파일이 완전하지 않습니다: '+missing.join(', ')+'. 전체 HTML을 다시 저장해 Chrome/Edge에서 여세요.','error');
 });
 })();

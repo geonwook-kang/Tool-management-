@@ -1,9 +1,9 @@
 """Read the actual torque-tool evidence embedded in the company workbook.
 
 The close-up calibration photo and the tool-system screenshot are different
-original images. Neither independently contains both the serial and both
-calibration dates, so this test does not claim a complete one-photo automatic
-update or reproduce the newly supplied inline-only photograph. Image bytes,
+original images. The calibration close-up must remain pending without identity;
+the system screenshot may now update its SMAX slot without supplying Cal Last.
+This does not reproduce the newly supplied inline-only photograph. Image bytes,
 source drawing anchors, leading-zero serial, and expected worksheet dates are
 checked without generating substitute text or replacing OCR responses.
 """
@@ -135,10 +135,17 @@ def main():
                             failures.append("calibration-label: company boilerplate was treated as an engineer name")
                         assert not evidence["prepared"], "A label with no engineer or tool serial must not select a tool"
                     else:
-                        proof = [item for item in (result.get("identityEvidence") or {}).get("serialMatches", []) if item.get("toolId") == tool_id and str(item.get("serial")) == expected["serial"]]
-                        if result.get("serial") != expected["serial"] or not proof or (proof[0].get("confidence") or 0) < 70:
-                            failures.append("system-screenshot: the actual serial, including its leading zero, was not read confidently")
-                        assert not evidence["prepared"], "A system screenshot without Cal Last is incomplete calibration evidence"
+                        proof = [item for item in (result.get("smaxEvidence") or {}).get("serialReadings", [])
+                                 if item.get("labelVerified") and item.get("value") == expected["serial"] and (item.get("confidence") or 0) >= 70]
+                        assessment = evidence["assessment"] or {}
+                        if result.get("documentType") != "smax" or not proof:
+                            failures.append("system-screenshot: primary Serial/Asset Number was not read confidently")
+                        assert result.get("last") == "", "SMAX must not invent an OCR Cal Last from audit dates"
+                        assert evidence["prepared"] and assessment.get("eligible"), evidence
+                        assert assessment.get("photoKind") == "smax" and assessment.get("toolId") == tool_id, assessment
+                        assert assessment.get("serial") == expected["serial"], assessment
+                        assert assessment.get("last") == expected["last"], "SMAX retains the workbook Cal Last"
+                        assert assessment.get("due") == expected["due"], assessment
                 page.locator("#remove-photo").click()
                 page.wait_for_function("ToolApp.state.photos.length===0&&!ToolApp.state.preparing")
             assert not requests, requests

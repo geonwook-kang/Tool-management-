@@ -277,7 +277,14 @@
     const supplied = Array.isArray(options.passes) && options.passes.length ? options.passes : [{ text: source, confidence: options.confidence, words: options.words }];
     const passes = supplied.map((pass) => {
       if (typeof pass === 'string') pass = { text: pass };
-      return { text: String(pass.text || '').normalize('NFKC'), source: String(pass.source || ''), confidence: score(pass.confidence == null ? options.confidence : pass.confidence), words: (Array.isArray(pass.words) ? pass.words : []).map(normalizeWord) };
+      const normalized = { text: String(pass.text || '').normalize('NFKC'), source: String(pass.source || ''), confidence: score(pass.confidence == null ? options.confidence : pass.confidence), words: (Array.isArray(pass.words) ? pass.words : []).map(normalizeWord) };
+      if (['serial', 'owner', 'due'].includes(pass.smaxRole)) normalized.smaxRole = pass.smaxRole;
+      const labelBox = wordBox(pass.smaxLabelBBox), valueBox = wordBox(pass.smaxValueBBox);
+      if (labelBox) normalized.smaxLabelBBox = labelBox;
+      if (valueBox) normalized.smaxValueBBox = valueBox;
+      if (typeof pass.smaxLabelText === 'string') normalized.smaxLabelText = pass.smaxLabelText;
+      if (pass.smaxLabelVerified === true) normalized.smaxLabelVerified = true;
+      return normalized;
     });
     const passTexts = unique(passes.map((pass) => pass.text)).filter(Boolean);
     const sourceCovered = passes.some((pass) => pass.text === source) || passes.map((pass) => pass.text).join('\n') === source || passTexts.join('\n') === source;
@@ -290,7 +297,7 @@
     const numbered = tools.filter((tool) => cleanSerial(tool.serial).length >= 3 && matchingPasses.some((pass) => acceptedProof(pass, tool.serial, true)));
     const names = unique(named.map((tool) => String(tool.name))), serials = unique(numbered.map((tool) => String(tool.serial)));
     const observedNames = names.slice(), observedSerials = serials.map(cleanSerial);
-    const nameEvidence = [], serialEvidence = [];
+    const nameEvidence = [], serialEvidence = [], fragmentEvidence = [];
     function observeName(name, kind, pass) {
       name = cleanName(name);
       const proof = identityProof(pass, name, false), confidence = proof ? proof.confidence : valueConfidence(pass, name, 'name');
@@ -311,6 +318,18 @@
       if (!reading) { reading = { source, confidence: null }; entry.sourceReadings.push(reading); }
       if (confidence != null) reading.confidence = reading.confidence == null ? confidence : Math.max(reading.confidence, confidence);
     }
+    function observeFragment(fragment, pass) {
+      const proof = identityProof(pass, fragment, true);
+      if (!proof) return; // A nearby digit/letter continuation is not a token.
+      const confidence = proof.confidence, source = pass.source || 'text';
+      let entry = fragmentEvidence.find((item) => item.fragment === fragment);
+      if (!entry) { entry = { fragment, confidence: null, passSources: [], sourceReadings: [] }; fragmentEvidence.push(entry); }
+      if (confidence != null) entry.confidence = entry.confidence == null ? confidence : Math.max(entry.confidence, confidence);
+      if (!entry.passSources.includes(source)) entry.passSources.push(source);
+      let reading = entry.sourceReadings.find((item) => item.source === source);
+      if (!reading) { reading = { source, confidence: null }; entry.sourceReadings.push(reading); }
+      if (confidence != null) reading.confidence = reading.confidence == null ? confidence : Math.max(reading.confidence, confidence);
+    }
     const ignoredNames = /^(?:교정필증|교정일자|교정일|차기교정|성적서|성적서번호|예정일자|예정일|다음교정|인정기구|인정기관|교정기관|한국인정|주식회사|시리얼|이름|담당자|엔지니어|검교정|검교정일|교정|일자|예정|차기|인정|번호|기구|필증|날짜|성명|라벨|검사|관리|담당|도구|장비|한국|동아)$/;
     const probeSerials = [];
     const observationPasses = matchingPasses;
@@ -323,7 +342,10 @@
         if (isProbe(pass)) { if (item.confidence != null && item.confidence >= 70) probeSerials.push({ serial: item.serial, confidence: item.confidence, pass }); }
         else { observedSerials.push(item.serial); observeSerial(item.serial, 'standalone', pass, item.confidence); }
       });
-      pass.text.split(/\r?\n/).forEach((line) => {
+      pass.text.split(/\r?\n/).forEach((line, lineIndex, lines) => {
+      const fragment = /^\s*(\d(?:[ \t]*\d){3})\s*$/.exec(line) || /^\s*(?:serial(?:\s*(?:number|no\.?))?|시리얼(?:\s*넘버|\s*번호)?|s\s*\/\s*n)\s*[:：#]?\s*(\d(?:[ \t]*\d){3})\s*$/i.exec(line);
+      const fragmentContext = lines.slice(Math.max(0, lineIndex - 2), lineIndex).join(' ');
+      if (fragment && !/incomplete/.test(pass.source) && !/^20\d{2}$/.test(cleanSerial(fragment[1])) && !/성\s*적\s*서|certificate|report\s*(?:no|number)|교\s*정\s*(?:예\s*정\s*)?일|date\s+of|cal\s+(?:last|next)|due\s+date|next\s+calibration|manufactur/i.test(fragmentContext)) observeFragment(cleanSerial(fragment[1]), pass);
       const name = /^\s*(?:(?:성명|이름|담당자|엔지니어|owner|name)\s*[:：]?\s*)?([가-힣](?:[ \t]*[가-힣]){1,3})(?:\s*|[ \t]+[0-9][A-Za-z0-9 ._-]*)$/i.exec(line);
       if (name && !isProbe(pass) && !ignoredNames.test(cleanName(name[1]))) { observedNames.push(cleanName(name[1])); observeName(name[1], /(?:성명|이름|담당자|엔지니어|owner|name)/i.test(line) ? 'labelled' : 'standalone', pass); }
       const explicitName = /(?:성명|이름|담당자|엔지니어|owner|name)\s*[:：]\s*([가-힣]{2,4}|[A-Za-z][A-Za-z \t]{1,30})(?![가-힣])/i.exec(line);
@@ -355,11 +377,11 @@
       return values.length ? Math.max.apply(Math, values) : null;
     }
     const identityEvidence = {
-      names, serials, observedNames: unique(observedNames.map(cleanName)), observedNameEvidence: nameEvidence, observedSerials: unique(observedSerials), observedSerialEvidence: serialEvidence,
+      names, serials, observedNames: unique(observedNames.map(cleanName)), observedNameEvidence: nameEvidence, observedSerials: unique(observedSerials), observedSerialEvidence: serialEvidence, observedSerialFragments: fragmentEvidence,
       nameMatches: named.map((tool) => ({ toolId: tool.id, name: tool.name, confidence: bestConfidence(tool.name, 'name') })),
       serialMatches: numbered.map((tool) => ({ toolId: tool.id, serial: tool.serial, confidence: bestConfidence(tool.serial, 'serial') }))
     };
-    const datePasses = passes.filter((pass) => !/^(?:identity[-_](?:crop|probe)|date[-_]probe)/.test(pass.source));
+    const datePasses = passes.filter((pass) => !/^(?:identity[-_](?:crop|probe)|date[-_]probe|smax[-_]field)/.test(pass.source));
     const dateText = (sourceCovered ? [] : [source]).concat(datePasses.map((pass) => pass.text)).join('\n');
     const readings = datePasses.map(datePass);
     const allReadings = sourceCovered ? readings : readings.concat([datePass({ text: source, confidence: score(options.confidence), words: [] })]);
@@ -404,7 +426,24 @@
     if (named.length && numbered.length && !overlap.length) warnings.push('사진의 이름과 시리얼 번호가 서로 다른 엑셀 항목을 가리킵니다.');
     if (!dateEvidence.method) warnings.push('교정일·다음 교정일의 라벨 또는 두 번의 일치하는 날짜 인식이 필요합니다.');
     if (dateEvidence.ambiguous) warnings.push('교정일 또는 다음 교정일이 서로 다르게 읽혔습니다.');
-    return { text, name: names.length === 1 ? names[0] : '', serial: serials.length === 1 ? serials[0] : '', last: dateEvidence.last || dateEvidence.explicitLast || '', due: dateEvidence.due || dateEvidence.explicitDue || '', failed: false, identityRecoveryIncomplete: passes.some((pass) => pass.source === 'identity-probe-incomplete'), candidateIds: unique(candidates.map((tool) => tool.id)), warnings, confidence: score(options.confidence), identityEvidence, dateEvidence, passes };
+    const result = { text, name: names.length === 1 ? names[0] : '', serial: serials.length === 1 ? serials[0] : '', last: dateEvidence.last || dateEvidence.explicitLast || '', due: dateEvidence.due || dateEvidence.explicitDue || '', failed: false, identityRecoveryIncomplete: passes.some((pass) => pass.source === 'identity-probe-incomplete'), candidateIds: unique(candidates.map((tool) => tool.id)), warnings, confidence: score(options.confidence), identityEvidence, dateEvidence, passes, documentType: 'calibration' };
+    if (global.ToolSMAX && typeof global.ToolSMAX.analyze === 'function') {
+      let documentWarnings = [];
+      try {
+        const analysis = global.ToolSMAX.analyze(passes, tools);
+        if (analysis && ['smax', 'unknown-smax', 'calibration'].includes(analysis.documentType)) {
+          const calibrationWarnings = result.warnings.slice();
+          Object.assign(result, analysis);
+          if (result.documentType === 'calibration') result.warnings = unique(calibrationWarnings.concat(Array.isArray(analysis.warnings) ? analysis.warnings : []));
+        }
+        if (analysis && Array.isArray(analysis.warnings)) documentWarnings = analysis.warnings.slice();
+      } catch (_) {
+        result.documentType = 'unknown-smax'; result.smaxEvidence = { incomplete: true };
+        documentWarnings.push('사진 유형과 필드를 확인하지 못해 자동 반영을 보류했습니다.');
+      }
+      if (result.documentType !== 'calibration') { result.last = ''; result.due = ''; result.warnings = documentWarnings; }
+    }
+    return result;
   }
 
   function deadline(promise, ms, message) {
@@ -558,16 +597,18 @@
     return crop;
   }
   function dateProbe(canvas, pass) {
-    const valid = spatialDates(pass), yearWords = pass.words.filter((word) => word.bbox && /20\d{2}/.test(word.text) && /\d/.test(word.text));
+    const valid = spatialDates(pass), yearWords = pass.words.filter((word) => word.bbox && /^20\d{2}(?:\s*[.\/\-년]\s*\d{0,2}(?:\s*[.\/\-월]\s*\d{0,2})?)?\.?$/.test(word.text.trim()));
     if (valid.length || yearWords.length) {
       const boxes = valid.length ? valid.map((item) => ({ bbox: item.bbox })) : yearWords;
       const bbox = unionBox(boxes), width = median(boxes.map((item) => item.bbox.x1 - item.bbox.x0)), height = median(boxes.map((item) => boxHeight(item.bbox)));
-      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.15, x1: bbox.x1 + width * 0.15, y0: bbox.y0 - height * 4, y1: bbox.y1 + height * 4 }, true);
+      // A year or year/month fragment is a location hint, not a full date
+      // width. Keep enough pixels to its right for the missing month/day.
+      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.15, x1: valid.length ? bbox.x1 + width * 0.15 : Math.max(bbox.x1 + width * 0.15, bbox.x0 + Math.max(width * 2.5, height * 12)), y0: bbox.y0 - height * 4, y1: bbox.y1 + height * 4 }, true);
     }
     const hints = pass.words.filter((word) => word.bbox && /calib?rat|al[i1]?brat|교\s*정|예\s*정|due|next/i.test(word.text));
     if (hints.length) {
       const bbox = unionBox(hints), width = bbox.x1 - bbox.x0, height = median(hints.map((word) => boxHeight(word.bbox)));
-      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.2, x1: bbox.x1 + width * 1.5, y0: bbox.y0 - height * 0.5, y1: bbox.y1 + height * 4 }, true);
+      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.2, x1: Math.max(bbox.x1 + width * 1.5, bbox.x0 + height * 16), y0: bbox.y0 - height * 0.5, y1: bbox.y1 + Math.max(height * 10, (bbox.y1 - bbox.y0) * 2) }, true);
     }
     return cropCanvas(canvas.nativeCanvas || canvas, 0.05, 0.25, 0.9, 0.7);
   }
@@ -657,13 +698,15 @@
           if (y + 1 < height && mask[index + width]) { mask[index + width] = 0; pending[tail++] = index + width; }
         }
         const w = x1 - x0 + 1, h = y1 - y0 + 1;
-        if (count < 24 || w < 12 || h < 3 || w / h < 1.3 || w / h > 35 || count < w * h * 0.3 || w * h > width * height * 0.35 || h > height * 0.3) continue;
+        if (count < 24 || w < 12 || w / scale < 64 || h < 3 || w / h < 1.3 || w / h > 35 || count < w * h * 0.3 || w * h > width * height * 0.35 || h > height * 0.3) continue;
         const pad = Math.max(2, Math.min(h * 0.1, 5));
         regions.push({ x0: (x0 - pad) / scale, x1: (x1 + 1 + pad) / scale, y0: (y0 - pad) / scale, y1: (y1 + 1 + pad) / scale, area: w * h });
       }
     } catch (_) { /* Overlapping upper bands remain available without pixels. */ }
-    const panels = regions.sort((a, b) => b.area - a.area).slice(0, 4).sort((a, b) => a.y0 - b.y0);
-    if (!panels.length) [0.01, 0.22, 0.43].forEach((top) => panels.push({ x0: native.width * 0.03, x1: native.width * 0.97, y0: native.height * top, y1: native.height * Math.min(0.74, top + 0.3) }));
+    const panels = regions.sort((a, b) => b.area - a.area).filter((region, index, sorted) => !sorted.slice(0, index).some((other) => region.x0 >= other.x0 && region.x1 <= other.x1 && region.y0 >= other.y0 && region.y1 <= other.y1)).slice(0, 2).sort((a, b) => a.y0 - b.y0);
+    // A detected white component can be a letter hole or a reflection. Reserve
+    // independent coverage even when such a component was found.
+    [[0.01, 0.42], [0.34, 0.74]].forEach(([top, bottom]) => panels.push({ x0: native.width * 0.03, x1: native.width * 0.97, y0: native.height * top, y1: native.height * bottom }));
     return panels.map((region) => ({ canvas: boundedCrop(native, region, false), region })).filter((item) => item.canvas);
   }
   function identityLines(canvas) {
@@ -702,10 +745,10 @@
         try { progressListener({ status: currentPhase + ' · ' + Math.floor((Date.now() - began) / 1000) + '초', progress: currentProgress }); } catch (_) {}
       }
     }, 2000);
-    function record(response, source) {
+    function record(response, source, metadata) {
       const data = response.data || {};
       const words = Array.isArray(data.words) ? data.words : (data.blocks || []).flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => (paragraph.lines || []).flatMap((line) => line.words || [])));
-      passes.push({ text: data.text || '', confidence: data.confidence, source, words: words.map(normalizeWord) });
+      passes.push(Object.assign({ text: data.text || '', confidence: data.confidence, source, words: words.map(normalizeWord) }, metadata || {}));
     }
     const current = () => parse(passes.map((pass) => pass.text).join('\n'), tools, { passes });
     const strongIdentity = (result) => {
@@ -722,6 +765,38 @@
       await deadline(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }), 5000, '문자 인식 설정을 적용하지 못했습니다. 다시 시도해 주세요.');
       record(await deadline(worker.recognize(canvas, {}, { text: true, blocks: true }), 60000, '사진을 60초 안에 읽지 못했습니다. 라벨을 크게 촬영한 사진으로 다시 시도해 주세요.'), 'original');
       let preliminary = current();
+      if (preliminary.documentType === 'smax' || preliminary.documentType === 'unknown-smax') {
+        const beganFields = Date.now(), fieldBudget = 60000; let fieldCalls = 0;
+        const markIncomplete = () => { if (!passes.some((pass) => pass.source === 'smax-field-incomplete')) passes.push({ text: '', confidence: null, source: 'smax-field-incomplete', words: [] }); };
+        try {
+          const proposed = global.ToolSMAX && typeof global.ToolSMAX.regionsForPass === 'function' ? global.ToolSMAX.regionsForPass(passes[0], canvas.width, canvas.height) : [];
+          const regions = (Array.isArray(proposed) ? proposed : []).filter((region) => ['serial', 'owner', 'due'].includes(region.role) && region.labelVerified === true && wordBox(region.bbox) && wordBox(region.labelBBox) && typeof region.labelText === 'string' && region.labelText.trim())
+            .sort((a, b) => ['serial', 'owner', 'due'].indexOf(a.role) - ['serial', 'owner', 'due'].indexOf(b.role));
+          const serialAlreadyRead = (preliminary.smaxEvidence && preliminary.smaxEvidence.serialReadings || []).some((reading) => reading.labelVerified === true && score(reading.confidence) >= 70 && tools.some((tool) => cleanSerial(tool.serial) === cleanSerial(reading.value)));
+          for (let index = 0; index < regions.length; index++) {
+            const region = regions[index];
+            if (region.role === 'serial' && serialAlreadyRead) continue;
+            const input = boundedCrop(canvas, region.bbox, true, 1.5);
+            if (!input) continue;
+            for (const psm of region.role === 'owner' ? ['6'] : region.role === 'serial' ? ['7', '11'] : ['6', '11']) {
+              if (fieldCalls >= 6 || Date.now() - beganFields >= fieldBudget) { markIncomplete(); break; }
+              fieldCalls++;
+              emit('SMAX의 ' + ({ serial: 'Serial/Asset Number', owner: 'Tool Owner', due: 'Calibration Due Date' }[region.role]) + ' 필드를 확인하는 중 · ' + fieldCalls + '/6', 0.82 + fieldCalls * 0.025);
+              await deadline(worker.setParameters({ tessedit_pageseg_mode: psm }), Math.min(5000, fieldBudget - (Date.now() - beganFields)), 'SMAX 필드 인식 설정 시간이 초과되었습니다.');
+              const metadata = { smaxRole: region.role, smaxLabelVerified: true, smaxLabelText: region.labelText, smaxLabelBBox: wordBox(region.labelBBox), smaxValueBBox: wordBox(region.bbox) };
+              record(await deadline(worker.recognize(input, {}, { text: true, blocks: true }), Math.min(20000, Math.max(1, fieldBudget - (Date.now() - beganFields))), 'SMAX 필드 추가 확인 시간이 초과되었습니다.'), 'smax-field-' + region.role + '-' + psm + '-' + index, metadata);
+            }
+            if (fieldCalls >= 6 || Date.now() - beganFields >= fieldBudget) { if (index + 1 < regions.length) markIncomplete(); break; }
+          }
+        } catch (error) {
+          if (cancellation.cancelled) throw error;
+          markIncomplete(); discardWorker();
+          recoveryWarnings.push('SMAX 필드를 모두 확인하지 못해 자동 반영을 보류했습니다. 다시 올려 주세요.');
+        }
+        const result = current(); result.engineFailure = false; result.code = ''; result.errorCode = '';
+        result.warnings.push(...recoveryWarnings);
+        emit('SMAX 필드 인식 완료', 1); return result;
+      }
       if (!strongIdentity(preliminary) || preliminary.dateEvidence.method !== 'labelled' || !(preliminary.dateEvidence.confidence >= 70)) {
         progressStart = 0.8; progressSpan = 0.1;
         emit('교정 라벨을 한 번 더 읽는 중', progressStart);
@@ -737,7 +812,7 @@
           await deadline(worker.setParameters({ tessedit_pageseg_mode: '11' }), 5000, '문자 인식 설정에 실패했습니다.');
           record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 라벨 탐색 시간이 초과되었습니다.'), 'date-probe');
           let discovered = passes[passes.length - 1];
-          let focused = spatialDates(discovered).length ? dateCrop(probe, discovered, true) : dateColumnFromLabels(probe, discovered);
+          let focused = dateColumnFromLabels(probe, discovered) || (spatialDates(discovered).length ? dateCrop(probe, discovered, true) : null);
           if (!focused) {
             await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
             record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 표 재탐색 시간이 초과되었습니다.'), 'date-probe-lines');
@@ -753,6 +828,27 @@
           }
         }
         preliminary = current();
+        const dateEvidence = preliminary.dateEvidence;
+        const clearDatePair = dateEvidence.method && dateEvidence.last && dateEvidence.due && dateEvidence.confidence >= 70;
+        const clearLastOnly = dateEvidence.explicitLast && dateEvidence.lastConfidence >= 70 && !dateEvidence.dueLabelSeen && !dateEvidence.explicitDue && !dateEvidence.ambiguous && dateEvidence.dates.length === 1;
+        if (!clearDatePair && !clearLastOnly) {
+          // An isolated year/header can point at the wrong place or crop away
+          // the day. Search an independent wider area once; its locator text
+          // is excluded from approval just like the first date probe.
+          emit('날짜 라벨의 넓은 영역을 다시 찾는 중', 0.89);
+          const wide = cropCanvas(canvas.nativeCanvas || canvas, 0.03, 0.18, 0.94, 0.8);
+          await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
+          record(await deadline(worker.recognize(wide, {}, { text: true, blocks: true }), 20000, '넓은 날짜 라벨 탐색 시간이 초과되었습니다.'), 'date-probe-wide');
+          const discovered = passes[passes.length - 1];
+          const focused = dateColumnFromLabels(wide, discovered) || (spatialDates(discovered).length ? dateCrop(wide, discovered, true) : null);
+          if (focused) {
+            for (const psm of ['6', '11']) {
+              await deadline(worker.setParameters({ tessedit_pageseg_mode: psm }), 5000, '문자 인식 설정에 실패했습니다.');
+              record(await deadline(worker.recognize(focused, {}, { text: true, blocks: true }), 20000, '찾은 교정 날짜 확인 시간이 초과되었습니다.'), 'date-crop-wide-refine-' + psm);
+            }
+          }
+          preliminary = current();
+        }
       }
       if (!strongIdentity(preliminary)) {
         progressStart = 0.91; progressSpan = 0.08;

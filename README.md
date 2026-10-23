@@ -1,4 +1,20 @@
-# 툴 검교정 매니저 — 이름·시리얼 재인식 4.4
+# 툴 검교정 매니저 — 툴 라벨·SMAX 화면 자동 반영 4.5
+
+## 툴 라벨과 SMAX 화면 함께 업로드
+
+같은 사진 선택에서 툴 교정 라벨과 SMAX 화면을 올리면 문서 종류를 판별해 각각 `Label Photo`, `SMAX Tool Photo` 칸에 반영합니다. SMAX의 **Serial/Asset Number**는 엑셀의 `Serial`과 대조하며, `Asset #`의 지역·담당자 문자열이나 SMAX Tool Code·SGPN 번호를 시리얼로 사용하지 않습니다. 영문 `Tool Owner`는 원문으로 읽어 표시하고, 정확한 등록 시리얼에 연결된 엑셀의 한글 담당자를 사용합니다. 일반 영문 이름의 자동 번역 기능으로 주장하지 않습니다.
+
+SMAX의 **Calibration Due Date → Cal Next**만 날짜 변경에 사용합니다. `Created By`, `Last Modified` 날짜는 `Cal Last`로 사용하지 않으며 SMAX 처리는 `Cal Last`를 변경하지 않습니다. 차기일이 불명확하면 SMAX 사진만 저장하고 기존 날짜를 유지합니다. 서로 다른 명확한 시리얼·차기일, 폐기·중복 항목·과거 차기일은 보류합니다.
+
+같은 툴의 라벨 1장과 SMAX 1장은 한 번에 처리할 수 있습니다. 같은 사진 칸에 두 장이거나 두 화면의 확정 차기일이 다르면 자동 반영하지 않습니다. SMAX 열이 없는 엑셀을 라벨 사진 칸에 대신 저장하지 않습니다. 수동 검토에서는 저장 위치와 SMAX 차기일 반영 여부를 선택할 수 있습니다.
+
+## 라벨 후보와 날짜 영역 재탐색
+
+밝은 영역을 찾는 과정에서 큰 한글 내부의 작은 흰 공간을 라벨로 선택하고, 후보가 있다는 이유로 넓은 탐색을 생략하던 문제를 수정합니다. 검출한 라벨과 별도로 상단을 덮는 재탐색 영역을 유지합니다. 연도 일부나 Calibration Label 제목만 찾았을 때 좁은 영역을 반복해서 읽던 날짜 경로도 보완하며, 독립된 넓은 영역에서 다시 찾습니다. 이는 캔버스 영역 검사로 재현한 버그이며, 최신 채팅 사진의 원본 바이트를 실행 환경에 가져와 검증한 결과는 아닙니다.
+
+정확한 담당자 이름과 완전한 두 교정 날짜가 읽히면, 동일 담당자에게 등록된 툴에서 실제로 읽힌 4자리 숫자 조각도 대조합니다. 서로 다른 인식에서 높은 신뢰도로 두 번 확인되고, 등록 번호 길이의 40% 이상이며, 동일 담당자의 후보가 하나이고 엑셀 주기까지 맞아야 `owner-partial-serial`로 저장합니다. 같은 번호 조각을 공유하는 툴은 주기로 억지 선택하지 않습니다. `0713`을 `0716`으로 치환하거나 누락된 날짜의 일을 추측하지 않습니다. 기존의 독립적인 이름·주기 확정은 유지합니다.
+
+문제가 남으면 선택한 사진 아래 **인식 진단 ZIP 저장**으로 원본 사진과 패스별 글자·좌표·신뢰도를 한 파일로 받을 수 있습니다. 회사 엑셀, 회사 링크, 다른 사진, 브라우저 파일 핸들은 포함하지 않습니다. 진단 ZIP은 사용자가 다운로드하며 자동 전송하지 않습니다.
 
 ## 떨어진 이름·시리얼 라벨 재인식
 
@@ -53,11 +69,11 @@ Teams 파일 탭의 **SharePoint에서 열기**로 문서 라이브러리를 열
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드 — 이름·시리얼 재인식 4.4](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Identity-4.4.zip)
+[실행용 ZIP 다운로드 — 라벨·SMAX 자동 반영 4.5](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-SMAX-4.5.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Identity-4.4.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-SMAX-4.5.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -100,6 +116,13 @@ python tests/identity_retry_test.py --program /workspace/outputs/Tool-Manager-Fi
 python tests/identity_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/partial_identity_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/partial_identity_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/roi_recovery_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/owner_fragment_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/diagnostics_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/smax_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/smax_workbook_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/smax_app_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/smax_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
@@ -111,5 +134,7 @@ python tests/partial_identity_ocr_test.py --program /workspace/outputs/Tool-Mana
 `identity_retry_test.py`는 날짜만 읽힌 뒤 상단 태그 재독까지 진행하는 제어 흐름, 같은 행의 분리 문자, 충돌 시 연결 파일 쓰기 차단을 통제된 워커 응답으로 검사합니다. 사용자 원문에 없는 글자를 추가해 매칭하지 않는지도 검사합니다. `identity_ocr_test.py`는 실제 OCR로 기존 원본 이미지의 시리얼과 분리 태그의 합성 배치를 구분해 검사합니다. 합성 배치의 이름 카드는 생성한 인쇄 글자이며, 별도 시스템 화면의 시리얼·라벨 사진 픽셀을 재배치한 실험입니다. 이 실험은 최신 촬영 JPG나 한 장짜리 실제 사진의 자동 저장 성공을 입증하지 않습니다.
 
 `partial_identity_test.py`는 부분 시리얼 정책과 연결 파일 자동 저장·충돌 차단을 통제된 OCR 응답으로 검사합니다. `partial_identity_ocr_test.py`는 담당자 이름과 전체 시리얼이 없는 합성 인쇄 라벨을 실제 Tesseract로 읽습니다. 읽힌 7자리 조각을 독립적으로 반복 확인한 뒤 등록된 전체 번호로 연결하고, 실제 OPFS 파일의 Cal Last·Cal Next·사진과 원본 백업을 검사합니다. 원문에 전체 등록 번호를 추가하거나 OCR 응답을 교체하지 않습니다. 합성 라벨 검사이므로 흐린 실촬영 사진 전반의 정확도를 보장하지는 않습니다.
+
+`smax_test.py`는 SMAX 분류·필드 역할·재인식 제어를 검사하며, `smax_workbook_test.py`와 `smax_app_test.py`는 실제 OPFS 파일에서 두 사진 칸, 혼합 배치, 날짜 보존·충돌과 백업을 확인합니다. 이들의 OCR 응답은 통제된 대역입니다. 별도 `smax_ocr_test.py`는 원본 엑셀의 실제 SMAX 화면 두 장을 실제 OCR로 읽고, 임시 파일의 차기일을 하루 이전으로 둔 뒤 사진의 정확한 차기일과 SMAX 사진으로 자동 갱신합니다. Cal Last·Label Photo·352셀·59사진·저장 전 백업을 검사합니다. 새 채팅 캡처나 임의로 흐린 사진 전반의 정확도를 검증한 결과는 아닙니다.
 
 실행 결과·회사 엑셀·사진은 Git과 배포물에서 제외합니다. 새로운 환경 복구용 설치 스크립트는 보존된 소스 압축본을 버전별 /workspace/.tool-manager-recovery/ 아래 복원하고 자산 검증 후 배포 파일을 다시 만듭니다. 사용자가 변경한 기존 체크아웃을 덮어쓰지 않습니다.
