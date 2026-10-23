@@ -116,13 +116,34 @@
   }
   function spatialDates(pass) {
     const words = pass.words.filter((word) => word.bbox && (dateOccurrences(word.text).length || /^[\d.\-/년월일\s]+$/.test(word.text)));
-    return physicalRows(words).flatMap((row) => {
+    const rawDates = datesIn(pass.text), completedWords = new Set(), lineGroups = new Map(), result = [];
+    words.filter((word) => word.lineBox).forEach((word) => {
+      const key = ['x0', 'y0', 'x1', 'y1'].map((part) => word.lineBox[part]).join(':');
+      if (!lineGroups.has(key)) lineGroups.set(key, []);
+      lineGroups.get(key).push(word);
+    });
+    function readRow(row, reconstructed) {
+      row = row.slice().sort((a, b) => a.bbox.x0 - b.bbox.x0);
       const joined = wordText(row);
       return dateOccurrences(joined.text).map((date) => {
         const selected = spanWords(joined, date);
+        const confidence = occurrenceConfidence(selected);
+        if (selected.some((word, index) => index && word.bbox.x0 - selected[index - 1].bbox.x1 > Math.max(boxHeight(word.bbox), boxHeight(selected[index - 1].bbox)) * 1.5)) return null;
+        // Do not invent a new calendar value from an unrelated faint fragment
+        // that happens to overlap another line. Low-confidence dates actually
+        // present in OCR text are retained for review and conflict handling.
+        if (reconstructed && selected.length > 1 && !rawDates.includes(date.value) && (confidence == null || confidence < 70)) return null;
         return { value: date.value, bbox: unionBox(selected), words: selected, confidence: occurrenceConfidence(selected) };
-      });
+      }).filter(Boolean);
+    }
+    lineGroups.forEach((row) => {
+      const found = readRow(row, false);
+      if (found.length) { result.push(...found); row.forEach((word) => completedWords.add(word)); }
     });
+    // Prefer the recognizer's complete lines before using physical alignment
+    // to recover words split into separate OCR blocks.
+    physicalRows(words.filter((word) => !completedWords.has(word))).forEach((row) => result.push(...readRow(row, true)));
+    return result;
   }
   function spatialLabels(pass) {
     const words = pass.words.filter((word) => word.bbox && /[가-힣A-Za-z]/.test(word.text));
@@ -189,7 +210,7 @@
     });
     const passTexts = unique(passes.map((pass) => pass.text)).filter(Boolean);
     const sourceCovered = passes.some((pass) => pass.text === source) || passes.map((pass) => pass.text).join('\n') === source || passTexts.join('\n') === source;
-    const identityPasses = passes.filter((pass) => !/^(?:date|label)[-_]crop/.test(pass.source));
+    const identityPasses = passes.filter((pass) => !/^(?:date|label)[-_](?:crop|probe)/.test(pass.source));
     const identityText = unique((sourceCovered ? [] : [source]).concat(identityPasses.map((pass) => pass.text))).join('\n');
     text = sourceCovered ? passTexts.join('\n') : unique([source].concat(passTexts)).filter(Boolean).join('\n');
     const named = tools.filter((tool) => cleanName(tool.name).length >= 2 && hasIdentity(identityText, tool.name, false));
@@ -213,7 +234,7 @@
       if (confidence != null) entry.confidence = entry.confidence == null ? confidence : Math.max(entry.confidence, confidence);
       if (!entry.passSources.includes(pass.source || 'text')) entry.passSources.push(pass.source || 'text');
     }
-    const ignoredNames = /^(?:교정필증|교정일자|교정일|차기교정|성적서|성적서번호|예정일자|다음교정|인정기구|한국인정|시리얼|이름|담당자|엔지니어|검교정|검교정일|교정|일자|예정|차기|인정|번호|기구|필증|날짜|성명|라벨|검사|관리|담당|도구|장비|한국|동아)$/;
+    const ignoredNames = /^(?:교정필증|교정일자|교정일|차기교정|성적서|성적서번호|예정일자|예정일|다음교정|인정기구|인정기관|교정기관|한국인정|주식회사|시리얼|이름|담당자|엔지니어|검교정|검교정일|교정|일자|예정|차기|인정|번호|기구|필증|날짜|성명|라벨|검사|관리|담당|도구|장비|한국|동아)$/;
     const observationPasses = sourceCovered ? identityPasses : identityPasses.concat([{ text: source, confidence: score(options.confidence), words: [], source: 'text' }]);
     observationPasses.forEach((pass) => {
       named.forEach((tool) => { if (hasIdentity(pass.text, tool.name, false)) observeName(tool.name, 'workbook', pass); });
@@ -244,7 +265,7 @@
       nameMatches: named.map((tool) => ({ toolId: tool.id, name: tool.name, confidence: bestConfidence(tool.name, 'name') })),
       serialMatches: numbered.map((tool) => ({ toolId: tool.id, serial: tool.serial, confidence: bestConfidence(tool.serial, 'serial') }))
     };
-    const datePasses = passes.filter((pass) => !/^identity[-_]crop/.test(pass.source));
+    const datePasses = passes.filter((pass) => !/^(?:identity[-_]crop|date[-_]probe)/.test(pass.source));
     const dateText = (sourceCovered ? [] : [source]).concat(datePasses.map((pass) => pass.text)).join('\n');
     const readings = datePasses.map(datePass);
     const allReadings = sourceCovered ? readings : readings.concat([datePass({ text: source, confidence: score(options.confidence), words: [] })]);
@@ -391,22 +412,32 @@
     const canvas = document.createElement('canvas'); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
     const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.filter = 'grayscale(1) contrast(1.15)'; context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    // Keep native pixels for small labels. Enlarging already small strokes can
+    // turn a 6 into an 8; targeted re-reads must also have the original scale.
+    const nativeScale = Math.min(1, 3200 / Math.max(width, height));
+    if (Math.abs(scale / nativeScale - 1) > 0.05) {
+      const native = document.createElement('canvas'); native.width = Math.round(width * nativeScale); native.height = Math.round(height * nativeScale);
+      const nativeContext = native.getContext('2d'); nativeContext.fillStyle = '#fff'; nativeContext.fillRect(0, 0, native.width, native.height);
+      nativeContext.filter = 'grayscale(1) contrast(1.15)'; nativeContext.drawImage(image, 0, 0, native.width, native.height);
+      canvas.nativeCanvas = native;
+    }
     if (image.close) image.close(); return canvas;
   }
   function cropCanvas(canvas, left, top, width, height) {
     const crop = document.createElement('canvas'); crop.width = Math.round(canvas.width * width); crop.height = Math.round(canvas.height * height);
     crop.getContext('2d').drawImage(canvas, Math.round(canvas.width * left), Math.round(canvas.height * top), crop.width, crop.height, 0, 0, crop.width, crop.height); return crop;
   }
-  function dateCrop(canvas, pass) {
+  function dateCrop(canvas, pass, nativeSize) {
     const dates = spatialDates(pass), labels = spatialLabels(pass).filter((label) => label.role !== 'other');
     let region;
-    if (dates.length >= 2 && dates.length <= 8) {
+    if (dates.length >= 1 && dates.length <= 8) {
       const bbox = unionBox(dates.map((date) => ({ bbox: date.bbox })));
       const width = median(dates.map((date) => date.bbox.x1 - date.bbox.x0)), height = median(dates.map((date) => boxHeight(date.bbox)));
       // Re-read the date values independently of tiny table text. Retain every
       // observed date; never select two by chronological order or discard a
       // third date. Semantic labels remain available from the original pass.
-      region = { x0: bbox.x0 - width * 0.12, x1: bbox.x1 + width * 0.12, y0: bbox.y0 - height * 0.45, y1: bbox.y1 + height * 0.45 };
+      const verticalMargin = dates.length === 1 ? height * 4 : height * 0.45;
+      region = { x0: bbox.x0 - width * 0.12, x1: bbox.x1 + width * 0.12, y0: bbox.y0 - verticalMargin, y1: bbox.y1 + verticalMargin };
     } else if (labels.length >= 2) {
       const bbox = unionBox(labels.map((label) => ({ bbox: label.bbox })));
       const width = bbox.x1 - bbox.x0, height = median(labels.map((label) => boxHeight(label.bbox)));
@@ -416,10 +447,99 @@
     const x = Math.max(0, Math.floor(region.x0)), y = Math.max(0, Math.floor(region.y0));
     const width = Math.min(canvas.width, Math.ceil(region.x1)) - x, height = Math.min(canvas.height, Math.ceil(region.y1)) - y;
     if (width < 1 || height < 1) return cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6);
-    const factor = dates.length >= 2 ? Math.min(2, 1600 / Math.max(width, height)) : Math.min(5, 2200 / Math.max(width, height), Math.max(1, 1600 / Math.max(width, height)));
+    const factor = nativeSize ? 1 : dates.length >= 2 ? Math.min(2, 1600 / Math.max(width, height)) : Math.min(5, 2200 / Math.max(width, height), Math.max(1, 1600 / Math.max(width, height)));
     const crop = document.createElement('canvas'); crop.width = Math.round(width * factor); crop.height = Math.round(height * factor);
     crop.getContext('2d').drawImage(canvas, x, y, width, height, 0, 0, crop.width, crop.height);
     return crop;
+  }
+  function boundedCrop(canvas, region, nativeSize, factor) {
+    const source = nativeSize && canvas.nativeCanvas ? canvas.nativeCanvas : canvas;
+    const sx = source.width / canvas.width, sy = source.height / canvas.height;
+    const x = Math.max(0, Math.floor(region.x0 * sx)), y = Math.max(0, Math.floor(region.y0 * sy));
+    const width = Math.min(source.width, Math.ceil(region.x1 * sx)) - x, height = Math.min(source.height, Math.ceil(region.y1 * sy)) - y;
+    if (width < 1 || height < 1) return null;
+    const scale = Math.min(factor || 1, 2200 / Math.max(width, height));
+    const crop = document.createElement('canvas'); crop.width = Math.max(1, Math.round(width * scale)); crop.height = Math.max(1, Math.round(height * scale));
+    crop.getContext('2d').drawImage(source, x, y, width, height, 0, 0, crop.width, crop.height);
+    return crop;
+  }
+  function dateProbe(canvas, pass) {
+    const valid = spatialDates(pass), yearWords = pass.words.filter((word) => word.bbox && /20\d{2}/.test(word.text) && /\d/.test(word.text));
+    if (valid.length || yearWords.length) {
+      const boxes = valid.length ? valid.map((item) => ({ bbox: item.bbox })) : yearWords;
+      const bbox = unionBox(boxes), width = median(boxes.map((item) => item.bbox.x1 - item.bbox.x0)), height = median(boxes.map((item) => boxHeight(item.bbox)));
+      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.15, x1: bbox.x1 + width * 0.15, y0: bbox.y0 - height * 4, y1: bbox.y1 + height * 4 }, true);
+    }
+    const hints = pass.words.filter((word) => word.bbox && /calib?rat|al[i1]?brat|교\s*정|예\s*정|due|next/i.test(word.text));
+    if (hints.length) {
+      const bbox = unionBox(hints), width = bbox.x1 - bbox.x0, height = median(hints.map((word) => boxHeight(word.bbox)));
+      return boundedCrop(canvas, { x0: bbox.x0 - width * 0.2, x1: bbox.x1 + width * 1.5, y0: bbox.y0 - height * 0.5, y1: bbox.y1 + height * 4 }, true);
+    }
+    return cropCanvas(canvas.nativeCanvas || canvas, 0.05, 0.25, 0.9, 0.7);
+  }
+  function dateColumnFromLabels(canvas, pass) {
+    // A tiny table may retain only "일 자" from each left-hand label while
+    // suppressing the numbers as table cells. Use those row locations solely
+    // to propose the right column; the numbers still need two clean OCR reads.
+    const rows = physicalRows(pass.words.filter((word) => word.bbox && /[가-힣]/.test(word.text)))
+      .filter((row) => /일자/.test(cleanName(row.map((word) => word.text).join(''))));
+    if (rows.length < 2 || rows.length > 5) return null;
+    const boxes = rows.map(unionBox), h = median(rows.flat().map((word) => boxHeight(word.bbox)));
+    const right = median(boxes.map((box) => box.x1));
+    const crop = boundedCrop(canvas, { x0: right + h * 0.2, x1: canvas.width, y0: Math.min(...boxes.map((box) => box.y0)) - h * 0.5, y1: Math.max(...boxes.map((box) => box.y1)) + h * 0.5 }, true);
+    return crop ? withoutVerticalBorders(crop, h) : null;
+  }
+  function withoutVerticalBorders(canvas, characterHeight) {
+    // Closed spreadsheet-like cells can cause Tesseract to suppress their
+    // contents. Trim only long vertical rules near the crop's outer edges.
+    // Pixel values and recognized characters are never rewritten.
+    try {
+      const width = canvas.width, height = canvas.height;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+      const radius = Math.max(1, Math.min(6, Math.round(characterHeight * 0.1)));
+      const occupied = new Uint32Array(width), longest = new Uint32Array(width), current = new Uint32Array(width), prefix = new Uint32Array(width + 1);
+      for (let y = 0; y < height; y++) {
+        prefix[0] = 0;
+        for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4;
+          const dark = pixels[index + 3] > 128 && (pixels[index] + pixels[index + 1] + pixels[index + 2]) / 3 < 140;
+          prefix[x + 1] = prefix[x] + Number(dark);
+        }
+        for (let x = 0; x < width; x++) {
+          const dark = prefix[Math.min(width, x + radius + 1)] > prefix[Math.max(0, x - radius)];
+          if (dark) { occupied[x]++; current[x]++; longest[x] = Math.max(longest[x], current[x]); } else current[x] = 0;
+        }
+      }
+      const runs = [];
+      for (let x = 0; x < width; x++) {
+        if (occupied[x] < height * 0.72 || longest[x] < height * 0.65) continue;
+        const previous = runs[runs.length - 1];
+        if (previous && previous.end === x - 1) previous.end = x; else runs.push({ start: x, end: x });
+      }
+      const narrow = runs.filter((run) => run.end - run.start + 1 <= characterHeight * 0.6);
+      const left = narrow.find((run) => run.end < Math.min(width * 0.35, characterHeight * 2));
+      const right = narrow.find((run) => run.start > Math.max(width * 0.5, width - characterHeight * 3));
+      const padding = Math.max(1, Math.round(characterHeight * 0.1));
+      const x0 = left ? left.end + padding : 0, x1 = right ? right.start - padding : width;
+      if ((x0 || x1 !== width) && x1 - x0 >= Math.max(width * 0.5, characterHeight * 4)) return boundedCrop(canvas, { x0, x1, y0: 0, y1: height }, false);
+    } catch (_) { /* Keep the original crop if pixels are unavailable. */ }
+    return canvas;
+  }
+  function identityCrop(canvas, pass, tools) {
+    const numeric = pass.words.filter((word) => word.bbox && /^[0-9][0-9 ._-]{5,}$/.test(word.text) && !dateOccurrences(word.text).length && !/^20\d{6}$/.test(cleanSerial(word.text)));
+    const names = tools.filter((tool) => hasIdentity(pass.text, tool.name, false)).map((tool) => cleanName(tool.name));
+    const named = pass.words.filter((word) => word.bbox && names.some((name) => name.includes(cleanName(word.text)) && /[가-힣A-Za-z]/.test(word.text)));
+    const serialLabels = pass.words.filter((word) => word.bbox && /serial|s\s*\/\s*n|시리얼/i.test(word.text));
+    const besideSerialLabel = (word) => serialLabels.some((label) => word.bbox.x0 >= label.bbox.x1 && Math.abs(centerY(word.bbox) - centerY(label.bbox)) <= Math.max(boxHeight(word.bbox), boxHeight(label.bbox)) * 1.5);
+    if (numeric.length && (!named.length || numeric.some(besideSerialLabel))) {
+      const word = numeric.slice().sort((a, b) => Number(besideSerialLabel(b)) - Number(besideSerialLabel(a)) || (b.confidence || 0) - (a.confidence || 0))[0], box = word.bbox, width = box.x1 - box.x0, height = boxHeight(box);
+      return { canvas: boundedCrop(canvas, { x0: box.x0 - width * 0.25, x1: box.x1 + width * 0.25, y0: box.y0 - height * 0.4, y1: box.y1 + height * 0.4 }, true, 1.5), psm: '7' };
+    }
+    if (named.length) {
+      const box = unionBox(named), width = box.x1 - box.x0, height = boxHeight(box);
+      return { canvas: boundedCrop(canvas, { x0: box.x0 - width * 0.3, x1: box.x1 + width * 3, y0: box.y0 - height, y1: box.y1 + height * 5 }, true, 1.5), psm: '6' };
+    }
+    return { canvas: cropCanvas(canvas, 0.03, 0.02, 0.94, 0.5), psm: '6' };
   }
   async function runRecognition(blob, tools, onProgress) {
     progressListener = onProgress; progressStart = 0.15; progressSpan = 0.64;
@@ -440,7 +560,11 @@
       passes.push({ text: data.text || '', confidence: data.confidence, source, words: words.map(normalizeWord) });
     }
     const current = () => parse(passes.map((pass) => pass.text).join('\n'), tools, { passes });
-    const strongIdentity = (result) => result.identityEvidence.serialMatches.concat(result.identityEvidence.nameMatches).some((match) => match.confidence != null && match.confidence >= 70);
+    const strongIdentity = (result) => {
+      const serials = unique(result.identityEvidence.serialMatches.filter((match) => match.confidence != null && match.confidence >= 70).map((match) => match.toolId));
+      const names = unique(result.identityEvidence.nameMatches.filter((match) => match.confidence != null && match.confidence >= 70).map((match) => match.toolId));
+      return serials.length === 1 || (!serials.length && names.length === 1);
+    };
     try {
       emit('사진을 준비하는 중', 0.01);
       const canvas = await deadline(imageCanvas(blob), 15000, '사진을 15초 안에 열지 못했습니다. 다른 JPG 또는 PNG 사진으로 다시 시도해 주세요.');
@@ -453,18 +577,45 @@
       if (!strongIdentity(preliminary) || preliminary.dateEvidence.method !== 'labelled' || !(preliminary.dateEvidence.confidence >= 70)) {
         progressStart = 0.8; progressSpan = 0.1;
         emit('교정 라벨을 한 번 더 읽는 중', progressStart);
-        await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
-        record(await deadline(worker.recognize(dateCrop(canvas, passes[0]), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'date-crop');
+        if (spatialDates(passes[0]).length >= 2 || preliminary.dateEvidence.method === 'labelled' && preliminary.dateEvidence.confidence >= 70) {
+          await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
+          record(await deadline(worker.recognize(dateCrop(canvas, passes[0]), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'date-crop');
+        } else {
+          // Discovery scans locate small date lines; they are not proof of a
+          // date. Only the subsequent clean, independently segmented re-reads
+          // can supply automatic dates, so an exploratory 06/08 error cannot
+          // silently become an approved due date.
+          const probe = dateProbe(canvas, passes[0]);
+          await deadline(worker.setParameters({ tessedit_pageseg_mode: '11' }), 5000, '문자 인식 설정에 실패했습니다.');
+          record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 라벨 탐색 시간이 초과되었습니다.'), 'date-probe');
+          let discovered = passes[passes.length - 1];
+          let focused = spatialDates(discovered).length ? dateCrop(probe, discovered, true) : dateColumnFromLabels(probe, discovered);
+          if (!focused) {
+            await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
+            record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 표 재탐색 시간이 초과되었습니다.'), 'date-probe-lines');
+            discovered = passes[passes.length - 1];
+            focused = dateColumnFromLabels(probe, discovered) || (spatialDates(discovered).length ? dateCrop(probe, discovered, true) : null);
+          }
+          if (focused) {
+            for (const psm of ['6', '11']) {
+              emit('찾은 날짜를 원본 크기로 확인하는 중', 0.86);
+              await deadline(worker.setParameters({ tessedit_pageseg_mode: psm }), 5000, '문자 인식 설정에 실패했습니다.');
+              record(await deadline(worker.recognize(focused, {}, { text: true, blocks: true }), 45000, '확대 날짜 확인 시간이 초과되었습니다.'), 'date-crop-refine-' + psm);
+            }
+          }
+        }
         preliminary = current();
       }
       if (!strongIdentity(preliminary)) {
         progressStart = 0.91; progressSpan = 0.08;
         emit('이름과 시리얼 표지를 한 번 더 읽는 중', progressStart);
-        await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
-        record(await deadline(worker.recognize(cropCanvas(canvas, 0.08, 0.14, 0.8, 0.48), {}, { text: true, blocks: true }), 45000, '이름·시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop');
+        const identity = identityCrop(canvas, passes[0], tools);
+        await deadline(worker.setParameters({ tessedit_pageseg_mode: identity.psm }), 5000, '문자 인식 설정에 실패했습니다.');
+        record(await deadline(worker.recognize(identity.canvas, {}, { text: true, blocks: true }), 45000, '이름·시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop');
         preliminary = current();
         if (!strongIdentity(preliminary)) {
           emit('사진 하단의 시리얼 표지를 읽는 중', 0.97);
+          await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
           record(await deadline(worker.recognize(cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6), {}, { text: true, blocks: true }), 45000, '하단 시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop-lower');
         }
       }

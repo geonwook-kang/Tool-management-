@@ -7,8 +7,11 @@ const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>st
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={serial:'시리얼 번호 일치',name:'이름 일치',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
 let seq=0,timer,restoreTask=Promise.resolve();
+const memoryEnabled=()=>$('remember-matches').checked;
+function refreshMemory(){const info=window.ToolProfiles?.inspect();$('memory-status').textContent=info?`기억한 툴 ${info.count}개 · 인식 패턴 ${info.aliasCount}개${!memoryEnabled()?' · 활용 꺼짐':!info.persistent?' · 이번 실행 중에만 기억':''}`:'매칭 기억 기능을 준비하지 못했습니다. 기본 인식은 계속 사용할 수 있습니다.';$('clear-matches').disabled=state.busy||state.preparing||state.source.saving||!(info?.count||info?.conflictCount);$('remember-matches').disabled=state.busy||state.preparing||state.source.saving;}
+function rememberApproved(entries){if(!memoryEnabled()||!window.ToolProfiles)return;for(const {p} of entries)try{ToolProfiles.remember(state.model,p);}catch(_){}refreshMemory();}
 const pendingRows=()=>approved().filter(p=>!state.source.connected||!p.saved);
 function sourceFailure(error){const info=ToolConnectedFile.inspect();state.source.error=error.message;state.source.needsPermission=!!info.needsPermission;state.source.needsReconnect=!!info.needsReconnect;if(info.needsPermission||info.needsReconnect)state.source.connected=false;}
 
@@ -73,6 +76,7 @@ async function retrySource(){
 function invalidate(){state.revision++;state.preparationError='';if(state.preparedResult)URL.revokeObjectURL(state.preparedResult.url);state.preparedResult=null;$('automatic-result-download').hidden=true;$('automatic-result-download').removeAttribute('href');}
 function refresh(){
  refreshSource();
+ refreshMemory();
  const selected=approved(),autos=selected.filter(p=>p.approval==='automatic').length,engineErrors=state.photos.filter(engineFailed).length,pending=state.photos.length-selected.length-engineErrors;
  $('photo-count').textContent=state.photos.length+'장';
  $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.saved?'✓ 연결 파일 저장됨':p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':engineFailed(p)?'⚠ 인식 엔진 실행 실패':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
@@ -132,6 +136,7 @@ async function addPhotos(files){
  if(automatic()&&state.model&&ids.length)await recognize(ids);else status(state.model?'사진이 등록되었습니다. 인식 또는 수동 반영을 선택하세요.':'사진이 등록되었습니다. 엑셀을 선택하면 자동으로 처리합니다.','success');if(errors.length)status(errors.join('\n'),'error');
 }
 function applyOCR(p,result){
+ if(memoryEnabled()&&window.ToolProfiles)try{result=ToolProfiles.enhance(state.model,result);}catch(_){}
  p.result=result;p.error=null;p.edited=false;p.manualEntry=false;p.assessment=ToolAutomation.assess(state.model,result);
  const match=state.model.tools.find(t=>t.id===p.assessment.toolId)||(result.candidateIds?.length===1?state.model.tools.find(t=>t.id===result.candidateIds[0]):null);
  p.draft={toolId:match?.id||'',name:result.name||match?.name||'',serial:result.serial||match?.serial||'',last:p.assessment.last||result.last||'',due:p.assessment.due||result.due||''};p.review=null;p.approval=null;
@@ -172,10 +177,11 @@ async function prepareResult(){
    const saved=await ToolConnectedFile.save({bytes,expectedVersion:sourceVersion,verifyCurrent:()=>revision===state.revision&&sourceEpoch===state.source.epoch});
    state.source.version=saved.version;state.source.saveCount++;state.source.error='';state.source.hasBackup=true;state.source.savedAt=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());state.model=updatedModel;
    for(const entry of entries)entry.p.saved={...entry.meta,last:entry.update.last,due:entry.update.due,version:saved.version};
+   rememberApproved(entries);
    status('연결한 이 PC의 엑셀에 저장했습니다. OneDrive 동기화는 별도로 진행됩니다.','success');
   }catch(e){sourceFailure(e);status('연결 파일 저장 확인 필요: '+e.message+' 수정본 다운로드는 사용할 수 있습니다.','error');}
   finally{state.source.saving=false;refresh();render();}
- }
+ }else rememberApproved(entries);
  return state.preparedResult;
  }catch(e){if(revision===state.revision){state.preparationError=e.message;status('엑셀 생성 실패: '+e.message,'error');}return null;}finally{state.preparing=false;refresh();if(revision!==state.revision)schedule();}
 }
@@ -186,6 +192,8 @@ async function saveReview(e){
 }
 function download(blob,name){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 $('workbook').onchange=e=>readWorkbook(e.target.files[0]);$('photos').onchange=e=>addPhotos([...e.target.files]);
+$('remember-matches').onchange=()=>{try{localStorage.setItem('tool-manager-match-memory-enabled',String(memoryEnabled()));}catch(_){}refreshMemory();status(memoryEnabled()?'확인된 매칭을 기억하고 다음 사진에 활용합니다.':'다음에 추가하거나 다시 인식하는 사진부터 매칭 기억 활용을 끕니다.');};
+$('clear-matches').onclick=()=>{if(state.busy||state.preparing||state.source.saving)return;const info=window.ToolProfiles?.clear();refreshMemory();status(info?.error||'기억한 인식 패턴을 지웠습니다. 다음 사진부터 새로 기억합니다.',info?.error?'error':'');};
 $('automatic-mode').onchange=()=>{if(automatic()&&state.model&&state.photos.length)recognize(state.photos.filter(p=>!p.review).map(p=>p.id));else refresh();};
 $('recognize-all').onclick=()=>recognize(state.photos.filter(p=>!p.review).map(p=>p.id));$('recognize-one').onclick=()=>current()&&recognize([current().id]);
 $('retry-engine').onclick=()=>current()&&recognize([current().id]);
@@ -206,6 +214,7 @@ const linkKey='tool-manager-sharepoint-link';
 function setCloudLink(raw,persist=false){const value=raw.trim();if(!value){$('open-sharepoint').hidden=true;if(persist)try{localStorage.removeItem(linkKey);}catch(_){};return;}const url=new URL(value);if(url.protocol!=='https:')throw new Error('HTTPS 회사 링크를 입력하세요.');$('sharepoint-url').value=url.href;$('open-sharepoint').href=url.href;$('open-sharepoint').hidden=false;if(persist)try{localStorage.setItem(linkKey,url.href);}catch(_){};}
 $('remember-sharepoint').onclick=()=>{try{setCloudLink($('sharepoint-url').value,true);status('회사 문서 링크를 이 브라우저에 저장했습니다. 엑셀은 별도로 OneDrive 동기화 폴더에서 연결하세요.','success');}catch(e){status(e.message,'error');}};
 try{setCloudLink(localStorage.getItem(linkKey)||'');}catch(_){}
+try{$('remember-matches').checked=localStorage.getItem('tool-manager-match-memory-enabled')!=='false';}catch(_){}
 window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult,connectSource,retrySource};refresh();
 restoreTask=restoreSource();
 const missing=['ToolWorkbook','ToolOCR','ToolAutomation','ToolRuntime','ToolConnectedFile'].filter(k=>!window[k]);

@@ -202,7 +202,11 @@ def main():
                 const worker=await create(...args),recognize=worker.recognize.bind(worker);
                 worker.recognize=async(...input)=>{
                   const result=await recognize(...input),data=result.data||{};
-                  calibrationRawReadings.push({text:data.text,confidence:data.confidence,words:data.words,blocks:data.blocks});
+                  const words=(data.words||[]).map(word=>({text:word.text,
+                    confidence:word.confidence,bbox:word.bbox,
+                    symbols:(word.symbols||[]).map(symbol=>({text:symbol.text,
+                      confidence:symbol.confidence,bbox:symbol.bbox}))}));
+                  calibrationRawReadings.push({text:data.text,confidence:data.confidence,words});
                   return result;
                 };return worker;
               };

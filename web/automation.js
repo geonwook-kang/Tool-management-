@@ -44,23 +44,38 @@
     const conflictingSerials = Array.isArray(identity.observedSerialEvidence)
       ? identity.observedSerialEvidence.filter((proof) => high(proof.confidence)).map((proof) => proof.serial)
       : identity.observedSerials || [];
+    const clearDatePair = !dates.ambiguous && ['labelled', 'repeated-dates'].includes(dates.method) && high(dates.confidence)
+      && isoDate(dates.last) && isoDate(dates.due) && dates.due > dates.last;
+    const resolveSerial = (serial, target) => (identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
+      && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial));
+    const resolveName = (name, target) => (identity.resolvedNames || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
+      && normalizeName(proof.alias) === normalizeName(name) && normalizeName(proof.name) === normalizeName(target.name));
     let tool = null;
     if (serialMatches.length === 1) {
-      tool = serialMatches[0]; output.matchMethod = 'serial';
+      tool = serialMatches[0];
       const proof = identity.serialMatches.find((match) => match.toolId === tool.id);
+      output.matchMethod = proof?.learned ? 'remembered-serial' : 'serial';
       if (!high(proof && proof.confidence)) reject('시리얼 번호의 인식 신뢰도가 낮아 확인이 필요합니다.');
     } else if (serialMatches.length > 1) reject('인식한 시리얼 번호가 여러 툴과 일치합니다.');
-    else if (nameMatches.length === 1) {
-      tool = nameMatches[0]; output.matchMethod = 'name';
+    else if (nameMatches.length === 1 && tools.filter((other) => normalizeName(other.name) === normalizeName(nameMatches[0].name)).length === 1) {
+      tool = nameMatches[0];
       const proof = identity.nameMatches.find((match) => match.toolId === tool.id);
+      output.matchMethod = proof?.learned ? 'remembered-name' : 'name';
       if (!high(proof && proof.confidence)) reject('이름의 인식 신뢰도가 낮아 확인이 필요합니다.');
-      if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 읽힌 시리얼 번호가 해당 엔지니어의 툴과 다릅니다.');
-    } else if (nameMatches.length > 1) reject('이 엔지니어에게 툴이 여러 개 있어 시리얼 번호가 필요합니다.');
+    } else if (nameMatches.length) {
+      // The workbook is the reference for every interval, including tools
+      // calibrated less often than a torque wrench or a multimeter.
+      const owners = new Set(strongNameMatches.map((candidate) => normalizeName(candidate.name)));
+      const cycleMatches = clearDatePair && owners.size === 1 ? tools.filter((candidate) => owners.has(normalizeName(candidate.name))
+        && addMonths(dates.last, monthInterval(candidate)) === dates.due) : [];
+      if (cycleMatches.length === 1) { tool = cycleMatches[0]; output.matchMethod = 'name-cycle'; }
+      else reject('이 엔지니어에게 툴이 여러 개 있어 시리얼 번호 또는 구분되는 교정 주기가 필요합니다.');
+    }
     else reject('사진의 이름 또는 시리얼 번호와 정확히 일치하는 툴이 없습니다.');
     if (tool) {
       output.toolId = tool.id; output.name = tool.name; output.serial = tool.serial;
-      if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
-      if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
+      if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name) && !resolveName(name, tool))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
+      if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial) && !resolveSerial(serial, tool))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
       if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id)) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
       if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');

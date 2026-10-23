@@ -1,4 +1,16 @@
-# 툴 검교정 매니저 — 교정 날짜 자동 저장 4.2
+# 툴 검교정 매니저 — 자동 매칭과 패턴 기억 4.3
+
+## 시리얼 재인식과 교정 주기 대조
+
+이름이 읽혀도 동일 엔지니어에게 여러 툴이 있으면 시리얼을 계속 읽습니다. 이름 하나만 읽고 재시도를 끝내던 제어 흐름을 수정했습니다. 작은 라벨은 원본 크기로 다시 읽고, 찾기 위한 탐색 OCR과 확정 날짜 판독을 구분합니다. 표의 세로 테두리가 숫자 인식을 억제할 때에는 픽셀에서 긴 가장자리 선을 찾아 그 안쪽 숫자 열을 읽습니다. 글자·날짜 값을 이미지에 추가하거나 고치지 않습니다.
+
+시리얼을 못 읽더라도 이름과 두 교정 날짜가 명확하고, 그 간격이 동일 담당자의 현재 엑셀 주기 한 개에만 일치하면 `name-cycle`로 연결합니다. 6개월·12개월 이외의 주기도 엑셀에서 읽습니다. 동일 주기의 툴이 여러 개이거나 다른 명시적 시리얼과 충돌하면 보류합니다.
+
+## 확인된 인식 패턴 기억
+
+`web/profiles.js`는 독립적으로 확인한 자동 매칭 또는 사용자가 확인한 매칭에서 근접 인식 패턴을 이 브라우저의 localStorage에 기억합니다. 모델 재훈련이나 회사 공용 학습 서버는 구현하지 않습니다. 사진·날짜·회사 링크는 저장하지 않으며, 다른 PC에 자동 공유되지 않습니다.
+
+현재 엑셀의 고유 시리얼·담당자·자산·주기를 재검증하며, 명확히 알려진 다른 툴의 값을 덮어쓰지 않습니다. 앞자리 0을 붙이거나 삭제하는 변형은 기억하지 않습니다. 기억한 별칭을 근거로 다시 새 별칭을 늘리는 방식도 사용하지 않습니다. 충돌한 별칭은 적용하지 않고, 저장소가 막히면 현재 실행에서만 사용합니다. 화면에서 활용을 끄거나 초기화할 수 있습니다.
 
 ## 라벨의 날짜를 Cal Last / Cal Next에 저장
 
@@ -14,7 +26,7 @@
 
 ## 사진만 추가해 같은 엑셀에 자동 저장
 
-회사 SharePoint 문서를 PC의 OneDrive 폴더에 동기화하고, 프로그램의 **OneDrive 엑셀 한 번 연결**로 해당 .xlsx를 선택합니다. 그 뒤에는 사진만 추가하면 식별된 툴 행의 날짜·사진을 같은 파일에 저장합니다. 새 세션에서 브라우저 권한 재확인이 필요할 수 있습니다.
+Teams 파일 탭의 **SharePoint에서 열기**로 문서 라이브러리를 열거나 회사 SharePoint로 이동합니다. 문서를 PC의 OneDrive 폴더에 동기화하고, 프로그램의 **OneDrive 엑셀 한 번 연결**로 해당 .xlsx를 선택합니다. 그 뒤에는 사진만 추가하면 식별된 툴 행의 날짜·사진을 같은 파일에 저장합니다. 새 세션에서 브라우저 권한 재확인이 필요할 수 있습니다.
 
 이 기능은 File System Access API로 사용자가 선택한 로컬 파일에 저장하고, PC의 OneDrive가 서버로 동기화하는 방식입니다. SharePoint 공유 URL에 직접 로그인하거나 PUT하는 기능이 아닙니다. 프로그램은 선택한 파일이 올바른 동기화 파일인지, OneDrive 서버 동기화가 끝났는지 확인할 수 없습니다. 회사 링크는 사용자가 입력하면 그 브라우저에만 보관하며 배포 파일·Git에 포함하지 않습니다.
 
@@ -29,11 +41,11 @@
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드 — 날짜 자동 저장 4.2](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Cal-Dates-4.2.zip)
+[실행용 ZIP 다운로드 — 자동 매칭 4.3](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Auto-Match-4.3.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Cal-Dates-4.2.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Auto-Match-4.3.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -69,10 +81,15 @@ python tests/opaque_origin_ocr_test.py --program /workspace/outputs/Tool-Manager
 python tests/engine_failure_ui_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/calibration_dates_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/calibration_label_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/torque_dates_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/torque_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/profile_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
 
 테스트용 Python은 Playwright/openpyxl/Pillow와 Chromium을 사용합니다. 실제 회사 엑셀의30툴,352셀/스타일,59사진 보존과 원본 SHA256을 검사합니다. 날짜 정책·OPFS 저장 검사는 통제된 OCR출력으로 수행합니다. 실제 OCR은 HTTP(S)를 전부 차단한 상태로 생성한 한글 인쇄 라벨과 원본 엑셀에서 추출한 실제 교정 사진 2장을 읽습니다. 실제 시리얼이 있는 사진은 임시 엑셀 복사본의 과거 날짜를 사진의 날짜로 자동 갱신하고 사진 위치까지 검증합니다. 저해상도 실제 사진은 두 차례 일치한 날짜로 판정했으며 한글 라벨 자체를 정확히 읽었다는 검증은 아닙니다. 날짜만 있는 사진은 담당자를 식별할 수 없어 자동 저장을 보류합니다. 처음 채팅에 보인 손글씨 원본 자체의 정확도는 검증하지 않았습니다.
+
+추가 토크렌치 검사는 원본 엑셀의 실제 라벨 사진과 별도 시스템 화면 사진을 각각 읽어 날짜와 선행 0 시리얼을 검사합니다. 두 사진을 합쳐 한 장짜리 실제 촬영 사진이라고 주장하지 않습니다. 최근 스크린샷에 사용한 새로운 JPG 원본은 이 환경에 없으므로 그 사진 자체의 정확도는 미검증입니다. 사용자께서 지적한 이름만 읽고 시리얼 재시도를 생략하는 제어 흐름은 실제 `ToolOCR.recognize`와 대역 워커로 별도 재현·검증합니다. 기억 기능은 실제 브라우저 저장소와 대역 OCR의 앱 통합 검사로 확인하며 외부 모델 훈련 검사는 아닙니다.
 
 실행 결과·회사 엑셀·사진은 Git과 배포물에서 제외합니다. 새로운 환경 복구용 설치 스크립트는 보존된 소스 압축본을 버전별 /workspace/.tool-manager-recovery/ 아래 복원하고 자산 검증 후 배포 파일을 다시 만듭니다. 사용자가 변경한 기존 체크아웃을 덮어쓰지 않습니다.
