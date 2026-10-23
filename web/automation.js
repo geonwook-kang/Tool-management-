@@ -34,6 +34,16 @@
     if (!identity || !dates) { reject('자동 반영에 필요한 문자 인식 근거가 없습니다.'); return output; }
     const serialMatches = tools.filter((tool) => (identity.serialMatches || []).some((match) => match.toolId === tool.id && normalizeSerial(match.serial) === normalizeSerial(tool.serial)));
     const nameMatches = tools.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && normalizeName(match.name) === normalizeName(tool.name)));
+    const strongNameMatches = nameMatches.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && high(match.confidence)));
+    // Unlabelled Korean words on a calibration sticker can be company names
+    // or headings. They must not become contradictory owner names merely
+    // because they have the same length as a person's name.
+    const conflictingNames = Array.isArray(identity.observedNameEvidence)
+      ? identity.observedNameEvidence.filter((proof) => ['workbook', 'labelled'].includes(proof.kind) && high(proof.confidence)).map((proof) => proof.name)
+      : identity.observedNames || [];
+    const conflictingSerials = Array.isArray(identity.observedSerialEvidence)
+      ? identity.observedSerialEvidence.filter((proof) => high(proof.confidence)).map((proof) => proof.serial)
+      : identity.observedSerials || [];
     let tool = null;
     if (serialMatches.length === 1) {
       tool = serialMatches[0]; output.matchMethod = 'serial';
@@ -44,15 +54,15 @@
       tool = nameMatches[0]; output.matchMethod = 'name';
       const proof = identity.nameMatches.find((match) => match.toolId === tool.id);
       if (!high(proof && proof.confidence)) reject('이름의 인식 신뢰도가 낮아 확인이 필요합니다.');
-      if ((identity.observedSerials || []).some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 읽힌 시리얼 번호가 해당 엔지니어의 툴과 다릅니다.');
+      if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 읽힌 시리얼 번호가 해당 엔지니어의 툴과 다릅니다.');
     } else if (nameMatches.length > 1) reject('이 엔지니어에게 툴이 여러 개 있어 시리얼 번호가 필요합니다.');
     else reject('사진의 이름 또는 시리얼 번호와 정확히 일치하는 툴이 없습니다.');
     if (tool) {
       output.toolId = tool.id; output.name = tool.name; output.serial = tool.serial;
-      if ((identity.observedNames || []).some((name) => normalizeName(name) !== normalizeName(tool.name))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
-      if ((identity.observedSerials || []).some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
+      if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
+      if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
-      if (nameMatches.length && !nameMatches.some((other) => other.id === tool.id)) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
+      if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id)) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
       if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');
       if (/폐기|disposed|retired/i.test(String(tool.due || ''))) reject('폐기 처리된 툴은 자동 변경하지 않습니다.');
       if (Number(tool.photoCount) > 1) reject('이 툴의 사진 위치에 여러 사진이 있어 자동 교체할 수 없습니다.');

@@ -10,6 +10,22 @@
   const cleanName = (value) => String(value || '').normalize('NFKC').replace(/\s/g, '').toUpperCase();
   const score = (value) => value != null && value !== '' && Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : null;
   const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const median = (values) => { const sorted = values.slice().sort((a, b) => a - b); return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0; };
+  function wordBox(value) {
+    if (!value) return null;
+    const box = { x0: Number(value.x0), y0: Number(value.y0), x1: Number(value.x1), y1: Number(value.y1) };
+    return Object.values(box).every(Number.isFinite) && box.x1 > box.x0 && box.y1 > box.y0 ? box : null;
+  }
+  function normalizeWord(word) {
+    const result = { text: String(word.text || '').normalize('NFKC'), confidence: score(word.confidence) };
+    const box = wordBox(word.bbox), lineBox = wordBox(word.lineBox || word.line && word.line.bbox);
+    if (box) result.bbox = box;
+    if (lineBox) result.lineBox = lineBox;
+    return result;
+  }
+  const unionBox = (words) => ({ x0: Math.min(...words.map((w) => w.bbox.x0)), y0: Math.min(...words.map((w) => w.bbox.y0)), x1: Math.max(...words.map((w) => w.bbox.x1)), y1: Math.max(...words.map((w) => w.bbox.y1)) });
+  const centerY = (box) => (box.y0 + box.y1) / 2;
+  const boxHeight = (box) => box.y1 - box.y0;
 
   function emit(status, progress) {
     currentPhase = status; currentProgress = Math.max(0, Math.min(1, progress || 0));
@@ -65,7 +81,8 @@
   function labelsIn(text) {
     const labels = [], expressions = [
       ['due', /차\s*기\s*(?:검\s*)?교\s*정\s*(?:예\s*정\s*)?일\s*자?|(?:the\s+)?due\s+date(?:\s+of)?(?:\s+next\s+calibration)?|next\s+calibration(?:\s+date)?|cal\s+next/gi],
-      ['last', /(?:검\s*)?교\s*정\s*일\s*자?|date\s+of\s+calibration|calibration\s+date|cal\s+last/gi]
+      ['last', /(?:검\s*)?교\s*정\s*일\s*자?|date\s+of\s+calibration|calibration\s+date|cal\s+last/gi],
+      ['other', /제\s*조\s*일\s*자?|발\s*행\s*일\s*자?|성\s*적\s*서\s*발\s*행\s*일|date\s+of\s+(?:manufacture|issue)|manufactur(?:e|ing)\s+date|certificate\s+date/gi]
     ];
     expressions.forEach((entry) => {
       let match;
@@ -76,13 +93,90 @@
     });
     return labels.sort((a, b) => a.index - b.index);
   }
+  function physicalRows(words) {
+    const rows = [];
+    words.slice().sort((a, b) => centerY(a.bbox) - centerY(b.bbox) || a.bbox.x0 - b.bbox.x0).forEach((word) => {
+      const cy = centerY(word.bbox), h = boxHeight(word.bbox), separator = /^[.\-/]+$/.test(word.text);
+      // Median anchors prevent one tall/rotated word from chaining two rows.
+      const candidates = rows.map((row) => ({ row, distance: Math.abs(cy - median(row.map((w) => centerY(w.bbox)))), height: median(row.map((w) => boxHeight(w.bbox))) }))
+        .filter((item) => item.distance <= Math.max(2, separator ? item.height * 0.75 : Math.min(h, item.height) * 0.6)).sort((a, b) => a.distance - b.distance);
+      if (candidates.length) candidates[0].row.push(word); else rows.push([word]);
+    });
+    return rows.map((row) => row.sort((a, b) => a.bbox.x0 - b.bbox.x0)).sort((a, b) => median(a.map((w) => centerY(w.bbox))) - median(b.map((w) => centerY(w.bbox))));
+  }
+  function wordText(words) {
+    let text = '';
+    const spans = words.map((word) => { if (text) text += ' '; const index = text.length; text += word.text; return { word, index, end: text.length }; });
+    return { text, spans };
+  }
+  function spanWords(joined, span) { return joined.spans.filter((item) => item.index < span.end && item.end > span.index).map((item) => item.word); }
+  function occurrenceConfidence(words) {
+    const scores = words.map((word) => score(word.confidence));
+    return scores.length && scores.every((value) => value != null) ? Math.min(...scores) : null;
+  }
+  function spatialDates(pass) {
+    const words = pass.words.filter((word) => word.bbox && (dateOccurrences(word.text).length || /^[\d.\-/년월일\s]+$/.test(word.text)));
+    return physicalRows(words).flatMap((row) => {
+      const joined = wordText(row);
+      return dateOccurrences(joined.text).map((date) => {
+        const selected = spanWords(joined, date);
+        return { value: date.value, bbox: unionBox(selected), words: selected, confidence: occurrenceConfidence(selected) };
+      });
+    });
+  }
+  function spatialLabels(pass) {
+    const words = pass.words.filter((word) => word.bbox && /[가-힣A-Za-z]/.test(word.text));
+    const rows = physicalRows(words), candidates = [];
+    const sequences = [words, rows.flat()].concat(rows);
+    sequences.forEach((sequence) => {
+      const joined = wordText(sequence);
+      labelsIn(joined.text).forEach((label) => {
+        const selected = spanWords(joined, label), bbox = unionBox(selected);
+        if (!selected.length || bbox.y1 - bbox.y0 > median(selected.map((word) => boxHeight(word.bbox))) * 5) return;
+        if (!candidates.some((item) => item.role === label.role && ['x0', 'x1', 'y0', 'y1'].every((key) => Math.abs(item.bbox[key] - bbox[key]) < 1))) candidates.push({ role: label.role, bbox, words: selected });
+      });
+    });
+    return candidates;
+  }
+  function geometryDatePass(pass) {
+    const dates = spatialDates(pass), labels = spatialLabels(pass), roles = { last: [], due: [] }, chosen = [];
+    let ambiguous = false;
+    labels.forEach((label) => {
+      const edges = dates.map((date) => {
+        const h = Math.max(boxHeight(date.bbox), median(label.words.map((word) => boxHeight(word.bbox))));
+        const verticalGap = Math.max(0, label.bbox.y0 - date.bbox.y1, date.bbox.y0 - label.bbox.y1);
+        const horizontalGap = date.bbox.x0 - label.bbox.x1;
+        const shared = label.words.some((word) => date.words.includes(word) && labelsIn(word.text).filter((item) => item.role !== 'other').length === 1 && dateOccurrences(word.text).length === 1);
+        const right = horizontalGap >= -h * 0.2 && verticalGap <= h * 0.55;
+        const below = date.bbox.y0 >= label.bbox.y1 - h * 0.2 && verticalGap <= h * 2.5 && Math.abs(date.bbox.x0 - label.bbox.x0) <= h * 1.5;
+        if (!shared && !right && !below) return null;
+        if (right && labels.some((other) => other !== label && other.role !== label.role && other.bbox.x0 >= label.bbox.x1 && other.bbox.x1 <= date.bbox.x0 && Math.abs(centerY(other.bbox) - centerY(date.bbox)) <= h)) return null;
+        const distance = shared ? -1 : right ? Math.abs(centerY(label.bbox) - centerY(date.bbox)) / h + Math.max(0, horizontalGap) / h * 0.01 : verticalGap / h + 0.5;
+        return { label, date, distance };
+      }).filter(Boolean).sort((a, b) => a.distance - b.distance);
+      if (!edges.length) return;
+      // Two dates on the same row without a separating label are unresolved.
+      if (edges[1] && edges[1].date.value !== edges[0].date.value && edges[1].distance - edges[0].distance < 0.3) return;
+      chosen.push(edges[0]);
+    });
+    dates.forEach((date) => {
+      const matches = chosen.filter((edge) => edge.date === date), assignedRoles = unique(matches.map((edge) => edge.label.role));
+      if (assignedRoles.length > 1) { ambiguous = true; return; }
+      if (assignedRoles.length === 1 && assignedRoles[0] !== 'other') roles[assignedRoles[0]].push({ value: date.value, confidence: date.confidence, bbox: date.bbox });
+    });
+    return { dates: unique(dates.map((date) => date.value)).sort(), roles, dueLabel: labels.some((label) => label.role === 'due'), lastLabel: labels.some((label) => label.role === 'last'), otherLabel: labels.some((label) => label.role === 'other'), ambiguous, geometry: true };
+  }
   function datePass(pass) {
+    if (pass.words.some((word) => word.bbox)) return geometryDatePass(pass);
     const occurrences = dateOccurrences(pass.text), labels = labelsIn(pass.text), roles = { last: [], due: [] };
     occurrences.forEach((date, index) => {
-      const before = labels.filter((label) => label.end <= date.index && date.index - label.end <= 140).pop();
-      if (before && (!index || occurrences[index - 1].index < before.end)) roles[before.role].push({ value: date.value, confidence: valueConfidence(pass, date.value, 'date') });
+      const previous = index ? occurrences[index - 1].end : 0;
+      const pending = labels.filter((label) => label.end <= date.index && label.index >= previous && date.index - label.end <= 140);
+      const before = pending[pending.length - 1];
+      // Text column order (all labels, then all dates) is not row evidence.
+      if (before && before.role !== 'other' && unique(pending.map((label) => label.role)).length === 1) roles[before.role].push({ value: date.value, confidence: valueConfidence(pass, date.value, 'date') });
     });
-    return { dates: unique(occurrences.map((date) => date.value)).sort(), roles, dueLabel: labels.some((label) => label.role === 'due') };
+    return { dates: unique(occurrences.map((date) => date.value)).sort(), roles, dueLabel: labels.some((label) => label.role === 'due'), lastLabel: labels.some((label) => label.role === 'last'), otherLabel: labels.some((label) => label.role === 'other'), ambiguous: false, geometry: false };
   }
   function parse(text, tools, options) {
     options = options || {};
@@ -91,43 +185,70 @@
     const supplied = Array.isArray(options.passes) && options.passes.length ? options.passes : [{ text: source, confidence: options.confidence, words: options.words }];
     const passes = supplied.map((pass) => {
       if (typeof pass === 'string') pass = { text: pass };
-      return { text: String(pass.text || '').normalize('NFKC'), source: String(pass.source || ''), confidence: score(pass.confidence == null ? options.confidence : pass.confidence), words: (Array.isArray(pass.words) ? pass.words : []).map((word) => ({ text: String(word.text || ''), confidence: score(word.confidence) })) };
+      return { text: String(pass.text || '').normalize('NFKC'), source: String(pass.source || ''), confidence: score(pass.confidence == null ? options.confidence : pass.confidence), words: (Array.isArray(pass.words) ? pass.words : []).map(normalizeWord) };
     });
-    text = unique([source].concat(passes.map((pass) => pass.text))).filter(Boolean).join('\n');
-    const named = tools.filter((tool) => cleanName(tool.name).length >= 2 && hasIdentity(text, tool.name, false));
-    const numbered = tools.filter((tool) => cleanSerial(tool.serial).length >= 3 && hasIdentity(text, tool.serial, true));
+    const passTexts = unique(passes.map((pass) => pass.text)).filter(Boolean);
+    const sourceCovered = passes.some((pass) => pass.text === source) || passes.map((pass) => pass.text).join('\n') === source || passTexts.join('\n') === source;
+    const identityPasses = passes.filter((pass) => !/^(?:date|label)[-_]crop/.test(pass.source));
+    const identityText = unique((sourceCovered ? [] : [source]).concat(identityPasses.map((pass) => pass.text))).join('\n');
+    text = sourceCovered ? passTexts.join('\n') : unique([source].concat(passTexts)).filter(Boolean).join('\n');
+    const named = tools.filter((tool) => cleanName(tool.name).length >= 2 && hasIdentity(identityText, tool.name, false));
+    const numbered = tools.filter((tool) => cleanSerial(tool.serial).length >= 3 && hasIdentity(identityText, tool.serial, true));
     const names = unique(named.map((tool) => String(tool.name))), serials = unique(numbered.map((tool) => String(tool.serial)));
     const observedNames = names.slice(), observedSerials = serials.map(cleanSerial);
+    const nameEvidence = [], serialEvidence = [];
+    function observeName(name, kind, pass) {
+      name = cleanName(name);
+      const confidence = valueConfidence(pass, name, 'name');
+      let entry = nameEvidence.find((item) => item.name === name && item.kind === kind);
+      if (!entry) { entry = { name, kind, confidence: null, matchedToolIds: tools.filter((tool) => cleanName(tool.name) === name).map((tool) => tool.id), passSources: [] }; nameEvidence.push(entry); }
+      if (confidence != null) entry.confidence = entry.confidence == null ? confidence : Math.max(entry.confidence, confidence);
+      if (!entry.passSources.includes(pass.source || 'text')) entry.passSources.push(pass.source || 'text');
+    }
+    function observeSerial(serial, kind, pass) {
+      serial = cleanSerial(serial);
+      const confidence = valueConfidence(pass, serial, 'serial');
+      let entry = serialEvidence.find((item) => item.serial === serial && item.kind === kind);
+      if (!entry) { entry = { serial, kind, confidence: null, matchedToolIds: tools.filter((tool) => cleanSerial(tool.serial) === serial).map((tool) => tool.id), passSources: [] }; serialEvidence.push(entry); }
+      if (confidence != null) entry.confidence = entry.confidence == null ? confidence : Math.max(entry.confidence, confidence);
+      if (!entry.passSources.includes(pass.source || 'text')) entry.passSources.push(pass.source || 'text');
+    }
     const ignoredNames = /^(?:교정필증|교정일자|교정일|차기교정|성적서|성적서번호|예정일자|다음교정|인정기구|한국인정|시리얼|이름|담당자|엔지니어|검교정|검교정일|교정|일자|예정|차기|인정|번호|기구|필증|날짜|성명|라벨|검사|관리|담당|도구|장비|한국|동아)$/;
-    text.split(/\r?\n/).forEach((line) => {
+    const observationPasses = sourceCovered ? identityPasses : identityPasses.concat([{ text: source, confidence: score(options.confidence), words: [], source: 'text' }]);
+    observationPasses.forEach((pass) => {
+      named.forEach((tool) => { if (hasIdentity(pass.text, tool.name, false)) observeName(tool.name, 'workbook', pass); });
+      numbered.forEach((tool) => { if (hasIdentity(pass.text, tool.serial, true)) observeSerial(tool.serial, 'workbook', pass); });
+      pass.text.split(/\r?\n/).forEach((line) => {
       const name = /^\s*(?:(?:성명|이름|담당자|엔지니어|owner|name)\s*[:：]?\s*)?([가-힣](?:[ \t]*[가-힣]){1,3})(?:\s*|[ \t]+[0-9][A-Za-z0-9 ._-]*)$/i.exec(line);
-      if (name && !ignoredNames.test(cleanName(name[1]))) observedNames.push(cleanName(name[1]));
-      const explicitName = /(?:성명|이름|담당자|엔지니어|owner|name)\s*[:：]\s*([가-힣A-Za-z][가-힣A-Za-z \t]{1,30})/i.exec(line);
-      if (explicitName && !ignoredNames.test(cleanName(explicitName[1]))) observedNames.push(cleanName(explicitName[1]));
+      if (name && !ignoredNames.test(cleanName(name[1]))) { observedNames.push(cleanName(name[1])); observeName(name[1], /(?:성명|이름|담당자|엔지니어|owner|name)/i.test(line) ? 'labelled' : 'standalone', pass); }
+      const explicitName = /(?:성명|이름|담당자|엔지니어|owner|name)\s*[:：]\s*([가-힣]{2,4}|[A-Za-z][A-Za-z \t]{1,30})(?![가-힣])/i.exec(line);
+      if (explicitName && !ignoredNames.test(cleanName(explicitName[1]))) { observedNames.push(cleanName(explicitName[1])); observeName(explicitName[1], 'labelled', pass); }
       const explicitSerial = /(?:serial(?:\s*(?:number|no\.?))?|시리얼(?:\s*넘버|\s*번호)?|s\s*\/\s*n)\s*[:：#]?\s*([A-Z0-9][A-Z0-9._-]{2,})/i.exec(line);
-      if (explicitSerial) observedSerials.push(cleanSerial(explicitSerial[1]));
+      if (explicitSerial) { observedSerials.push(cleanSerial(explicitSerial[1])); observeSerial(explicitSerial[1], 'labelled', pass); }
       const dates = dateOccurrences(line), numeric = /(?:^|[^A-Z0-9])([A-Z0-9]{5,20})(?![A-Z0-9])/gi;
       let match;
       while ((match = numeric.exec(line))) {
         const index = match.index + match[0].indexOf(match[1]);
         if (/\d/.test(match[1]) && !dates.some((date) => index >= date.index && index < date.end)) {
-          if (/^\d{5,20}$/.test(match[1]) || /^\s*[A-Z0-9]{5,20}\s*$/i.test(line)) observedSerials.push(cleanSerial(match[1]));
+          if (/^\d{5,20}$/.test(match[1]) || /^\s*[A-Z0-9]{5,20}\s*$/i.test(line)) { observedSerials.push(cleanSerial(match[1])); observeSerial(match[1], 'standalone', pass); }
         }
       }
+      });
     });
     function bestConfidence(value, kind) {
-      const values = passes.filter((pass) => hasIdentity(pass.text, value, kind === 'serial')).map((pass) => valueConfidence(pass, value, kind)).filter((value) => value != null);
+      const values = identityPasses.filter((pass) => hasIdentity(pass.text, value, kind === 'serial')).map((pass) => valueConfidence(pass, value, kind)).filter((value) => value != null);
       return values.length ? Math.max.apply(Math, values) : null;
     }
     const identityEvidence = {
-      names, serials, observedNames: unique(observedNames.map(cleanName)), observedSerials: unique(observedSerials),
+      names, serials, observedNames: unique(observedNames.map(cleanName)), observedNameEvidence: nameEvidence, observedSerials: unique(observedSerials), observedSerialEvidence: serialEvidence,
       nameMatches: named.map((tool) => ({ toolId: tool.id, name: tool.name, confidence: bestConfidence(tool.name, 'name') })),
       serialMatches: numbered.map((tool) => ({ toolId: tool.id, serial: tool.serial, confidence: bestConfidence(tool.serial, 'serial') }))
     };
-    const readings = passes.map(datePass);
-    const sourceCovered = passes.some((pass) => pass.text === source) || passes.map((pass) => pass.text).join('\n') === source;
+    const datePasses = passes.filter((pass) => !/^identity[-_]crop/.test(pass.source));
+    const dateText = (sourceCovered ? [] : [source]).concat(datePasses.map((pass) => pass.text)).join('\n');
+    const readings = datePasses.map(datePass);
     const allReadings = sourceCovered ? readings : readings.concat([datePass({ text: source, confidence: score(options.confidence), words: [] })]);
-    const dateEvidence = { dates: datesIn(text), last: '', due: '', method: '', confidence: null, explicitLast: '', explicitDue: '', lastConfidence: null, dueConfidence: null, dueLabelSeen: allReadings.some((reading) => reading.dueLabel), ambiguous: false, repeatCount: 0 };
+    const dateEvidence = { dates: unique(datesIn(dateText).concat(readings.flatMap((reading) => reading.dates))).sort(), last: '', due: '', method: '', confidence: null, explicitLast: '', explicitDue: '', lastConfidence: null, dueConfidence: null, dueLabelSeen: allReadings.some((reading) => reading.dueLabel), lastLabelSeen: allReadings.some((reading) => reading.lastLabel), otherLabelSeen: allReadings.some((reading) => reading.otherLabel), ambiguous: allReadings.some((reading) => reading.ambiguous), repeatCount: 0 };
     ['last', 'due'].forEach((role) => {
       const values = unique(allReadings.flatMap((reading) => reading.roles[role].map((date) => date.value)));
       if (values.length > 1) dateEvidence.ambiguous = true;
@@ -140,11 +261,11 @@
     if (!dateEvidence.ambiguous && dateEvidence.explicitLast && dateEvidence.explicitDue) {
       dateEvidence.last = dateEvidence.explicitLast; dateEvidence.due = dateEvidence.explicitDue; dateEvidence.method = 'labelled';
       if (dateEvidence.lastConfidence != null && dateEvidence.dueConfidence != null) dateEvidence.confidence = Math.min(dateEvidence.lastConfidence, dateEvidence.dueConfidence);
-    } else if (!dateEvidence.ambiguous && dateEvidence.dates.length === 2) {
+    } else if (!dateEvidence.ambiguous && !dateEvidence.otherLabelSeen && (!dateEvidence.lastLabelSeen || dateEvidence.explicitLast) && (!dateEvidence.dueLabelSeen || dateEvidence.explicitDue) && dateEvidence.dates.length === 2) {
       const pair = dateEvidence.dates.join(',');
       const agreements = readings.map((reading, index) => {
         if (reading.dates.length !== 2 || reading.dates.join(',') !== pair) return null;
-        const confidences = reading.dates.map((date) => valueConfidence(passes[index], date, 'date'));
+        const confidences = reading.dates.map((date) => valueConfidence(datePasses[index], date, 'date'));
         return confidences.every((value) => value != null) ? Math.min.apply(Math, confidences) : null;
       }).filter((value) => value != null && value >= 70);
       dateEvidence.repeatCount = agreements.length;
@@ -154,6 +275,14 @@
       }
     }
     const overlap = named.filter((tool) => numbered.some((other) => other.id === tool.id));
+    if (dateEvidence.method && dateEvidence.confidence != null && dateEvidence.confidence >= 70) {
+      const confirmedDates = [dateEvidence.last, dateEvidence.due].map((value) => value.replace(/-/g, ''));
+      // A serial-only pass may lose the dots in a date already confirmed by
+      // date OCR. It is not another serial unless explicitly labelled as such
+      // or present as a real serial in the workbook.
+      identityEvidence.observedSerialEvidence = serialEvidence.filter((item) => !(item.kind === 'standalone' && !item.matchedToolIds.length && confirmedDates.includes(item.serial)));
+      identityEvidence.observedSerials = identityEvidence.observedSerials.filter((serial) => identityEvidence.observedSerialEvidence.some((item) => item.serial === serial));
+    }
     const candidates = overlap.length ? overlap : named.concat(numbered), warnings = [];
     if (identityEvidence.observedNames.length > 1 || identityEvidence.observedSerials.length > 1) warnings.push('서로 다른 이름 또는 시리얼 번호가 읽혀 자동 반영을 보류했습니다.');
     if (!names.length && !serials.length) warnings.push('엑셀과 정확히 일치하는 이름 또는 시리얼 번호를 읽지 못했습니다.');
@@ -268,6 +397,30 @@
     const crop = document.createElement('canvas'); crop.width = Math.round(canvas.width * width); crop.height = Math.round(canvas.height * height);
     crop.getContext('2d').drawImage(canvas, Math.round(canvas.width * left), Math.round(canvas.height * top), crop.width, crop.height, 0, 0, crop.width, crop.height); return crop;
   }
+  function dateCrop(canvas, pass) {
+    const dates = spatialDates(pass), labels = spatialLabels(pass).filter((label) => label.role !== 'other');
+    let region;
+    if (dates.length >= 2 && dates.length <= 8) {
+      const bbox = unionBox(dates.map((date) => ({ bbox: date.bbox })));
+      const width = median(dates.map((date) => date.bbox.x1 - date.bbox.x0)), height = median(dates.map((date) => boxHeight(date.bbox)));
+      // Re-read the date values independently of tiny table text. Retain every
+      // observed date; never select two by chronological order or discard a
+      // third date. Semantic labels remain available from the original pass.
+      region = { x0: bbox.x0 - width * 0.12, x1: bbox.x1 + width * 0.12, y0: bbox.y0 - height * 0.45, y1: bbox.y1 + height * 0.45 };
+    } else if (labels.length >= 2) {
+      const bbox = unionBox(labels.map((label) => ({ bbox: label.bbox })));
+      const width = bbox.x1 - bbox.x0, height = median(labels.map((label) => boxHeight(label.bbox)));
+      region = { x0: bbox.x0 - height, x1: bbox.x1 + width * 2.5, y0: bbox.y0 - height, y1: bbox.y1 + height };
+    }
+    if (!region) return cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6);
+    const x = Math.max(0, Math.floor(region.x0)), y = Math.max(0, Math.floor(region.y0));
+    const width = Math.min(canvas.width, Math.ceil(region.x1)) - x, height = Math.min(canvas.height, Math.ceil(region.y1)) - y;
+    if (width < 1 || height < 1) return cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6);
+    const factor = dates.length >= 2 ? Math.min(2, 1600 / Math.max(width, height)) : Math.min(5, 2200 / Math.max(width, height), Math.max(1, 1600 / Math.max(width, height)));
+    const crop = document.createElement('canvas'); crop.width = Math.round(width * factor); crop.height = Math.round(height * factor);
+    crop.getContext('2d').drawImage(canvas, x, y, width, height, 0, 0, crop.width, crop.height);
+    return crop;
+  }
   async function runRecognition(blob, tools, onProgress) {
     progressListener = onProgress; progressStart = 0.15; progressSpan = 0.64;
     const cancellation = { cancelled: false, reject: null, promise: null };
@@ -284,7 +437,7 @@
     function record(response, source) {
       const data = response.data || {};
       const words = Array.isArray(data.words) ? data.words : (data.blocks || []).flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => (paragraph.lines || []).flatMap((line) => line.words || [])));
-      passes.push({ text: data.text || '', confidence: data.confidence, source, words: words.map((word) => ({ text: word.text || '', confidence: word.confidence })) });
+      passes.push({ text: data.text || '', confidence: data.confidence, source, words: words.map(normalizeWord) });
     }
     const current = () => parse(passes.map((pass) => pass.text).join('\n'), tools, { passes });
     const strongIdentity = (result) => result.identityEvidence.serialMatches.concat(result.identityEvidence.nameMatches).some((match) => match.confidence != null && match.confidence >= 70);
@@ -301,7 +454,7 @@
         progressStart = 0.8; progressSpan = 0.1;
         emit('교정 라벨을 한 번 더 읽는 중', progressStart);
         await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
-        record(await deadline(worker.recognize(cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'label-crop');
+        record(await deadline(worker.recognize(dateCrop(canvas, passes[0]), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'date-crop');
         preliminary = current();
       }
       if (!strongIdentity(preliminary)) {
@@ -309,6 +462,11 @@
         emit('이름과 시리얼 표지를 한 번 더 읽는 중', progressStart);
         await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
         record(await deadline(worker.recognize(cropCanvas(canvas, 0.08, 0.14, 0.8, 0.48), {}, { text: true, blocks: true }), 45000, '이름·시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop');
+        preliminary = current();
+        if (!strongIdentity(preliminary)) {
+          emit('사진 하단의 시리얼 표지를 읽는 중', 0.97);
+          record(await deadline(worker.recognize(cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6), {}, { text: true, blocks: true }), 45000, '하단 시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop-lower');
+        }
       }
       const result = current(); result.engineFailure = false; result.code = ''; result.errorCode = '';
       emit('이름·시리얼·교정 날짜 인식 완료', 1); return result;

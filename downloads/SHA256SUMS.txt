@@ -1,3 +1,4 @@
-ee9a2c594e6cd6e6ba671346ddca334984a1a998a552efca46ac232433b0145d  Tool-Manager.zip
-ee9a2c594e6cd6e6ba671346ddca334984a1a998a552efca46ac232433b0145d  Tool-Manager-OneDrive.zip
 ee9a2c594e6cd6e6ba671346ddca334984a1a998a552efca46ac232433b0145d  Tool-Manager-Auto-Fix-4.1.zip
+670c15d49118e3f22adc086adb7d8106efa5abfc1542236d90fc4763c5fcda07  Tool-Manager-Cal-Dates-4.2.zip
+670c15d49118e3f22adc086adb7d8106efa5abfc1542236d90fc4763c5fcda07  Tool-Manager-OneDrive.zip
+670c15d49118e3f22adc086adb7d8106efa5abfc1542236d90fc4763c5fcda07  Tool-Manager.zip

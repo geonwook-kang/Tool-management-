@@ -1,4 +1,10 @@
-# 툴 검교정 매니저 — OneDrive 연결판 4.1
+# 툴 검교정 매니저 — 교정 날짜 자동 저장 4.2
+
+## 라벨의 날짜를 Cal Last / Cal Next에 저장
+
+사진의 **교정일자 → Excel Cal Last**, **차기교정예정일자 → Excel Cal Next**로 연결합니다. 셀은 열 이름으로 찾으므로 엑셀의 열 순서와 관계없이 같은 엔지니어·시리얼 행에 날짜를 씁니다. 연결 모드에서는 사진도 함께 원본 연결 파일에 자동 저장합니다.
+
+작은 교정 라벨에서 OCR이 숫자를 정확히 읽어도 표의 글자 순서 때문에 역할을 연결하지 못하거나, 고정 영역 자르기로 재인식이 나빠지던 문제를 개선했습니다. 단어 위치로 같은 행의 날짜를 연결하고, 검출한 날짜 영역을 확대해 재인식합니다. 날짜 전용 재인식에서 나온 글자는 이름·시리얼 판단에 섞지 않습니다. 라벨의 짧은 한글 단어를 엔지니어 이름으로 잘못 판단해 고유 시리얼 일치를 막던 문제도 구분합니다. 서로 다른 명시적 이름·시리얼이나 날짜 충돌은 보류합니다.
 
 ## 사진 인식 엔진 로딩 수정
 
@@ -23,11 +29,11 @@
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드 — 인식 엔진 수정 4.1](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Auto-Fix-4.1.zip)
+[실행용 ZIP 다운로드 — 날짜 자동 저장 4.2](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Cal-Dates-4.2.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Auto-Fix-4.1.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Cal-Dates-4.2.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -61,10 +67,12 @@ python tests/download_test.py --program /workspace/outputs/Tool-Manager-Fixed.ht
 python tests/connected_file_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/opaque_origin_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/engine_failure_ui_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/calibration_dates_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/calibration_label_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
 
-테스트용 Python은 Playwright/openpyxl/Pillow와 Chromium을 사용합니다. 실제 회사 엑셀의30툴,352셀/스타일,59사진 보존과 원본 SHA256을 검사합니다. 자동 처리 정책 검사는 통제된 OCR출력으로 수행하고 실제 OCR은 별도 테스트에서 HTTP(S)를 전부 차단한 상태로 생성한 한글 인쇄 라벨을 인식합니다. 처음 채팅에 보인 손글씨 원본 자체의 정확도는 검증하지 않았습니다.
+테스트용 Python은 Playwright/openpyxl/Pillow와 Chromium을 사용합니다. 실제 회사 엑셀의30툴,352셀/스타일,59사진 보존과 원본 SHA256을 검사합니다. 날짜 정책·OPFS 저장 검사는 통제된 OCR출력으로 수행합니다. 실제 OCR은 HTTP(S)를 전부 차단한 상태로 생성한 한글 인쇄 라벨과 원본 엑셀에서 추출한 실제 교정 사진 2장을 읽습니다. 실제 시리얼이 있는 사진은 임시 엑셀 복사본의 과거 날짜를 사진의 날짜로 자동 갱신하고 사진 위치까지 검증합니다. 저해상도 실제 사진은 두 차례 일치한 날짜로 판정했으며 한글 라벨 자체를 정확히 읽었다는 검증은 아닙니다. 날짜만 있는 사진은 담당자를 식별할 수 없어 자동 저장을 보류합니다. 처음 채팅에 보인 손글씨 원본 자체의 정확도는 검증하지 않았습니다.
 
 실행 결과·회사 엑셀·사진은 Git과 배포물에서 제외합니다. 새로운 환경 복구용 설치 스크립트는 보존된 소스 압축본을 버전별 /workspace/.tool-manager-recovery/ 아래 복원하고 자산 검증 후 배포 파일을 다시 만듭니다. 사용자가 변경한 기존 체크아웃을 덮어쓰지 않습니다.

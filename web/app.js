@@ -7,7 +7,7 @@ const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>st
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={serial:'시리얼 번호 일치',name:'이름 일치',labelled:'교정 라벨 날짜','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={serial:'시리얼 번호 일치',name:'이름 일치',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
 let seq=0,timer,restoreTask=Promise.resolve();
 const pendingRows=()=>approved().filter(p=>!state.source.connected||!p.saved);
 function sourceFailure(error){const info=ToolConnectedFile.inspect();state.source.error=error.message;state.source.needsPermission=!!info.needsPermission;state.source.needsReconnect=!!info.needsReconnect;if(info.needsPermission||info.needsReconnect)state.source.connected=false;}
@@ -91,7 +91,7 @@ function refresh(){
 function saveDraft(){const p=current();if(p&&state.model&&!$('review-panel').hidden&&!$('review-form').hidden)p.draft=Object.fromEntries(['name','serial','last','due'].map(k=>[k,$(k).value]).concat([['toolId',$('tool-select').value]]));}
 function schedule(){clearTimeout(timer);if(approved().length)timer=setTimeout(prepareResult,450);}
 function changed(){saveDraft();if(current())current().saved=null;const p=current();if(p){p.review=null;p.approval=null;p.edited=true;$('confirm').checked=false;$('draft-note').textContent='수정한 값을 확인한 뒤 보정한 내용 반영을 누르세요.';$('ocr-warning').classList.remove('auto-success');$('ocr-warning').textContent='입력값이 변경되어 이전 자동 반영을 취소했습니다.';}invalidate();refresh();schedule();}
-function renderExisting(){const t=state.model?.tools.find(t=>t.id===$('tool-select').value);$('existing').textContent=t?`엑셀 위치: ${t.sheet} ${t.row}행\n기존 교정일: ${t.last||'미등록'} · 다음: ${t.due||'미등록'}\n주기: ${t.interval} ${t.cycle}`:'불확실한 사진만 항목과 날짜를 직접 확인하세요.';}
+function renderExisting(){const t=state.model?.tools.find(t=>t.id===$('tool-select').value);$('existing').textContent=t?`엑셀 위치: ${t.sheet} ${t.row}행\n기존 Cal Last: ${t.last||'미등록'} · Cal Next: ${t.due||'미등록'}\n주기: ${t.interval} ${t.cycle}`:'불확실한 사진만 항목과 날짜를 직접 확인하세요.';}
 function render(){
  const p=current(),visible=!!(p&&state.model);$('review-panel').hidden=!visible;$('review-placeholder').hidden=visible;if(!visible)return;
  const failed=engineFailed(p);$('ocr-engine-error').hidden=!failed;$('review-form').hidden=failed&&!p.manualEntry;
@@ -101,7 +101,7 @@ function render(){
  const recommended=p.result?.candidateIds||[],d=p.draft||{},tools=[...state.model.tools].sort((a,b)=>Number(recommended.includes(b.id))-Number(recommended.includes(a.id)));
  $('tool-select').innerHTML='<option value="">확인이 필요한 툴 선택</option>'+tools.map(t=>`<option value="${esc(t.id)}">${recommended.includes(t.id)?'일치 후보 · ':''}${esc(t.sheet)} · ${esc(t.name)} · ${esc(t.serial)} (행 ${t.row})</option>`).join('');
  $('tool-select').value=d.toolId||'';for(const k of ['name','serial','last','due'])$(k).value=d[k]||'';$('confirm').checked=!!p.review;
- $('draft-note').textContent=p.approval==='automatic'?'✓ 별도의 확인 체크 없이 자동 반영했습니다.':p.review?'✓ 보정한 값을 반영했습니다.':'';
+ $('draft-note').textContent=p.approval==='automatic'?`✓ Cal Last: ${p.draft.last} · Cal Next: ${p.draft.due} · 사진 자동 반영`:p.review?'✓ 보정한 값을 반영했습니다.':'';
  $('ocr-warning').textContent=p.error||(p.approval==='automatic'?`자동 식별: ${methods[p.assessment.matchMethod]||p.assessment.matchMethod} · ${methods[p.assessment.dateMethod]||p.assessment.dateMethod}`:(p.assessment?.reasons||p.result?.warnings||[]).join('\n')||'불확실한 사진만 보정하세요.');
  $('ocr-warning').classList.toggle('auto-success',p.approval==='automatic');renderExisting();
  for(const el of $('review-panel').querySelectorAll('input,select,button'))el.disabled=state.busy;
