@@ -32,6 +32,7 @@
     if (!result || result.failed) { reject('사진 인식을 완료하지 못했습니다.'); return output; }
     const identity = result.identityEvidence, dates = result.dateEvidence;
     if (!identity || !dates) { reject('자동 반영에 필요한 문자 인식 근거가 없습니다.'); return output; }
+    if (result.identityRecoveryIncomplete) reject('이름·시리얼 추가 인식을 끝내지 못했습니다. 다른 툴과 혼동할 수 있어 자동 반영을 보류합니다.');
     const serialMatches = tools.filter((tool) => (identity.serialMatches || []).some((match) => match.toolId === tool.id && normalizeSerial(match.serial) === normalizeSerial(tool.serial)));
     const nameMatches = tools.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && normalizeName(match.name) === normalizeName(tool.name)));
     const strongNameMatches = nameMatches.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && high(match.confidence)));
@@ -46,8 +47,66 @@
       : identity.observedSerials || [];
     const clearDatePair = !dates.ambiguous && ['labelled', 'repeated-dates'].includes(dates.method) && high(dates.confidence)
       && isoDate(dates.last) && isoDate(dates.due) && dates.due > dates.last;
-    const resolveSerial = (serial, target) => (identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
-      && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial));
+    const observedSerialEvidence = Array.isArray(identity.observedSerialEvidence) ? identity.observedSerialEvidence : [];
+    const usableSource = (value) => {
+      const source = typeof value === 'string' ? value.trim() : '';
+      return source && !/^(?:text|unknown|null|undefined)$/i.test(source)
+        && !/^(?:date|label)[-_]/i.test(source) && !/(?:^|[-_])incomplete(?:$|[-_])/i.test(source) ? source : '';
+    };
+    function actualSources(value) {
+      const sources = new Set();
+      for (const proof of observedSerialEvidence) {
+        if (proof.learned || !high(proof.confidence) || !['standalone', 'labelled', 'workbook'].includes(proof.kind)
+          || normalizeSerial(proof.serial) !== value) continue;
+        const listed = new Set((Array.isArray(proof.passSources) ? proof.passSources : []).map(usableSource).filter(Boolean));
+        // The aggregate maximum and passSources cannot prove that each pass
+        // read the fragment confidently. Older evidence therefore stays pending.
+        for (const reading of Array.isArray(proof.sourceReadings) ? proof.sourceReadings : []) {
+          const source = usableSource(reading && reading.source);
+          if (source && listed.has(source) && high(reading.confidence)) sources.add(source);
+        }
+      }
+      return Array.from(sources);
+    }
+    const exactOwner = (target) => (identity.nameMatches || []).some((proof) => !proof.learned && proof.toolId === target.id
+      && normalizeName(proof.name) === normalizeName(target.name) && high(proof.confidence));
+    function exactSerialSources(target) {
+      const exact = (identity.serialMatches || []).some((proof) => !proof.learned && proof.toolId === target.id
+        && normalizeSerial(proof.serial) === normalizeSerial(target.serial) && high(proof.confidence));
+      return exact ? actualSources(normalizeSerial(target.serial)) : [];
+    }
+    // Both selection and conflict handling use this one global candidate rule.
+    // No characters are changed: a fragment must be a literal contiguous part
+    // of precisely one serial in the entire workbook, including disposed tools.
+    function resolvePartialSerial(value, options) {
+      const fragment = normalizeSerial(value), settings = options || {};
+      if (!fragment || tools.some((candidate) => normalizeSerial(candidate.serial) === fragment)) return null;
+      const candidates = tools.filter((candidate) => {
+        const canonical = normalizeSerial(candidate.serial);
+        return canonical.length > fragment.length && canonical.includes(fragment);
+      });
+      if (candidates.length !== 1) return null;
+      const target = candidates[0], canonical = normalizeSerial(target.serial);
+      const withOwner = !settings.exactConfirmation && exactOwner(target);
+      if (fragment.length < (withOwner ? 5 : 6) || fragment.length / canonical.length < (withOwner ? 0.5 : 0.6)) return null;
+      const sources = actualSources(fragment);
+      if (settings.exactConfirmation) {
+        const exactSources = exactSerialSources(target);
+        if (!sources.some((source) => exactSources.some((other) => source !== other))) return null;
+      } else {
+        if (sources.length < 2 || !clearDatePair || addMonths(dates.last, monthInterval(target)) !== dates.due) return null;
+      }
+      return { tool: target, fragment, sources };
+    }
+    const partialMatches = Array.from(new Set(observedSerialEvidence.map((proof) => normalizeSerial(proof.serial))))
+      .map((fragment) => resolvePartialSerial(fragment)).filter(Boolean);
+    const partialTools = tools.filter((candidate) => partialMatches.some((match) => match.tool.id === candidate.id));
+    const resolveSerial = (serial, target) => {
+      if ((identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
+        && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial))) return true;
+      const partial = resolvePartialSerial(serial) || resolvePartialSerial(serial, { exactConfirmation: true });
+      return !!partial && partial.tool.id === target.id;
+    };
     const resolveName = (name, target) => (identity.resolvedNames || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
       && normalizeName(proof.alias) === normalizeName(name) && normalizeName(proof.name) === normalizeName(target.name));
     let tool = null;
@@ -57,6 +116,8 @@
       output.matchMethod = proof?.learned ? 'remembered-serial' : 'serial';
       if (!high(proof && proof.confidence)) reject('시리얼 번호의 인식 신뢰도가 낮아 확인이 필요합니다.');
     } else if (serialMatches.length > 1) reject('인식한 시리얼 번호가 여러 툴과 일치합니다.');
+    else if (partialTools.length === 1) { tool = partialTools[0]; output.matchMethod = 'partial-serial'; }
+    else if (partialTools.length > 1) reject('부분 시리얼 번호가 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
     else if (nameMatches.length === 1 && tools.filter((other) => normalizeName(other.name) === normalizeName(nameMatches[0].name)).length === 1) {
       tool = nameMatches[0];
       const proof = identity.nameMatches.find((match) => match.toolId === tool.id);

@@ -1,4 +1,16 @@
-# 툴 검교정 매니저 — 자동 매칭과 패턴 기억 4.3
+# 툴 검교정 매니저 — 이름·시리얼 재인식 4.4
+
+## 떨어진 이름·시리얼 라벨 재인식
+
+날짜는 읽었지만 이름·시리얼을 찾지 못하면 상단의 라벨 후보를 나누어 재인식합니다. 기존의 한 번짜리 상단 영역·하단 영역 재독으로 끝나던 경로를 보완합니다. 같은 물리적 행에서 단어가 줄바꿈으로 분리된 경우에는 좌표와 실제 글자를 대조해 정확한 조합을 찾습니다. `Serial: 3155 0075`를 전체 번호와 짧은 접두 번호로 동시에 관측하던 문제도 수정합니다.
+
+앞자리 0과 실제 OCR 문자를 유지하며, 끝자리나 이름을 엑셀 값에 맞춰 임의 변경하지 않습니다. 원본의 고신뢰 시리얼 충돌은 계속 보류합니다. 사용자가 제공한 최신 토크렌치 OCR 원문에는 끝자리와 이름의 오독이 있었지만, 촬영 JPG 원본은 이 환경에 없어 그 사진의 개선 후 정확도는 미검증입니다.
+
+## 일부 시리얼만 보이는 새 사진
+
+새 촬영 사진에서 이름이나 번호 일부가 흐려졌을 때에도 실제로 읽힌 연속된 시리얼 조각을 엑셀 전체 툴 목록과 대조합니다. 최소 6글자이면서 전체 시리얼의 60% 이상인 조각이 서로 다른 재인식에서 두 번 이상 높은 신뢰도로 읽히고, 등록된 툴 한 개만 일치하며, 사진의 명확한 두 날짜가 그 툴의 엑셀 교정 주기와 맞으면 `partial-serial`로 자동 연결합니다. 이름까지 정확하면 최소 5글자·50%까지 대조합니다. 읽히지 않은 부분은 엑셀의 등록 번호를 사용하며 사진에서 전체 번호를 읽었다고 판단하지 않습니다.
+
+폐기 항목을 포함한 목록에서 후보가 여러 개면 자동 연결하지 않습니다. 다른 명확한 이름·전체 시리얼, 서로 다른 번호 조각, 날짜와 주기의 충돌도 보류합니다. 완전히 읽힌 다른 번호의 끝자리를 잘라 비슷한 번호에 맞추지 않습니다. 한 번만 읽힌 조각과 낮은 신뢰도의 반복은 충분한 근거로 사용하지 않습니다. 부분 번호 자체를 전체 번호의 새 별칭으로 기억하지 않습니다.
 
 ## 시리얼 재인식과 교정 주기 대조
 
@@ -41,11 +53,11 @@ Teams 파일 탭의 **SharePoint에서 열기**로 문서 라이브러리를 열
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드 — 자동 매칭 4.3](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Auto-Match-4.3.zip)
+[실행용 ZIP 다운로드 — 이름·시리얼 재인식 4.4](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Identity-4.4.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Auto-Match-4.3.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Identity-4.4.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -84,6 +96,10 @@ python tests/calibration_label_ocr_test.py --program /workspace/outputs/Tool-Man
 python tests/torque_dates_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/torque_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/profile_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/identity_retry_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/identity_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/partial_identity_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/partial_identity_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
@@ -91,5 +107,9 @@ python tests/profile_test.py --program /workspace/outputs/Tool-Manager-Fixed.htm
 테스트용 Python은 Playwright/openpyxl/Pillow와 Chromium을 사용합니다. 실제 회사 엑셀의30툴,352셀/스타일,59사진 보존과 원본 SHA256을 검사합니다. 날짜 정책·OPFS 저장 검사는 통제된 OCR출력으로 수행합니다. 실제 OCR은 HTTP(S)를 전부 차단한 상태로 생성한 한글 인쇄 라벨과 원본 엑셀에서 추출한 실제 교정 사진 2장을 읽습니다. 실제 시리얼이 있는 사진은 임시 엑셀 복사본의 과거 날짜를 사진의 날짜로 자동 갱신하고 사진 위치까지 검증합니다. 저해상도 실제 사진은 두 차례 일치한 날짜로 판정했으며 한글 라벨 자체를 정확히 읽었다는 검증은 아닙니다. 날짜만 있는 사진은 담당자를 식별할 수 없어 자동 저장을 보류합니다. 처음 채팅에 보인 손글씨 원본 자체의 정확도는 검증하지 않았습니다.
 
 추가 토크렌치 검사는 원본 엑셀의 실제 라벨 사진과 별도 시스템 화면 사진을 각각 읽어 날짜와 선행 0 시리얼을 검사합니다. 두 사진을 합쳐 한 장짜리 실제 촬영 사진이라고 주장하지 않습니다. 최근 스크린샷에 사용한 새로운 JPG 원본은 이 환경에 없으므로 그 사진 자체의 정확도는 미검증입니다. 사용자께서 지적한 이름만 읽고 시리얼 재시도를 생략하는 제어 흐름은 실제 `ToolOCR.recognize`와 대역 워커로 별도 재현·검증합니다. 기억 기능은 실제 브라우저 저장소와 대역 OCR의 앱 통합 검사로 확인하며 외부 모델 훈련 검사는 아닙니다.
+
+`identity_retry_test.py`는 날짜만 읽힌 뒤 상단 태그 재독까지 진행하는 제어 흐름, 같은 행의 분리 문자, 충돌 시 연결 파일 쓰기 차단을 통제된 워커 응답으로 검사합니다. 사용자 원문에 없는 글자를 추가해 매칭하지 않는지도 검사합니다. `identity_ocr_test.py`는 실제 OCR로 기존 원본 이미지의 시리얼과 분리 태그의 합성 배치를 구분해 검사합니다. 합성 배치의 이름 카드는 생성한 인쇄 글자이며, 별도 시스템 화면의 시리얼·라벨 사진 픽셀을 재배치한 실험입니다. 이 실험은 최신 촬영 JPG나 한 장짜리 실제 사진의 자동 저장 성공을 입증하지 않습니다.
+
+`partial_identity_test.py`는 부분 시리얼 정책과 연결 파일 자동 저장·충돌 차단을 통제된 OCR 응답으로 검사합니다. `partial_identity_ocr_test.py`는 담당자 이름과 전체 시리얼이 없는 합성 인쇄 라벨을 실제 Tesseract로 읽습니다. 읽힌 7자리 조각을 독립적으로 반복 확인한 뒤 등록된 전체 번호로 연결하고, 실제 OPFS 파일의 Cal Last·Cal Next·사진과 원본 백업을 검사합니다. 원문에 전체 등록 번호를 추가하거나 OCR 응답을 교체하지 않습니다. 합성 라벨 검사이므로 흐린 실촬영 사진 전반의 정확도를 보장하지는 않습니다.
 
 실행 결과·회사 엑셀·사진은 Git과 배포물에서 제외합니다. 새로운 환경 복구용 설치 스크립트는 보존된 소스 압축본을 버전별 /workspace/.tool-manager-recovery/ 아래 복원하고 자산 검증 후 배포 파일을 다시 만듭니다. 사용자가 변경한 기존 체크아웃을 덮어쓰지 않습니다.

@@ -7,7 +7,7 @@ const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>st
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
 let seq=0,timer,restoreTask=Promise.resolve();
 const memoryEnabled=()=>$('remember-matches').checked;
 function refreshMemory(){const info=window.ToolProfiles?.inspect();$('memory-status').textContent=info?`기억한 툴 ${info.count}개 · 인식 패턴 ${info.aliasCount}개${!memoryEnabled()?' · 활용 꺼짐':!info.persistent?' · 이번 실행 중에만 기억':''}`:'매칭 기억 기능을 준비하지 못했습니다. 기본 인식은 계속 사용할 수 있습니다.';$('clear-matches').disabled=state.busy||state.preparing||state.source.saving||!(info?.count||info?.conflictCount);$('remember-matches').disabled=state.busy||state.preparing||state.source.saving;}
