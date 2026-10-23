@@ -217,13 +217,19 @@
         // initialize handler mistakenly uses .data as the language filename.
         // Adapt only that message, before the library's normal message handler.
         const languageAdapter = 'self.addEventListener("message",function(event){var message=event.data;if(message&&message.action==="initialize"&&message.payload&&Array.isArray(message.payload.langs)){message.payload.langs=message.payload.langs.map(function(lang){return typeof lang==="string"?lang:lang.code;});}});\n';
-        const workerURL = URL.createObjectURL(new Blob([languageAdapter, assets.workerSource], { type: 'application/javascript' }));
-        const coreURL = URL.createObjectURL(new Blob([assets.coreSource], { type: 'application/javascript' }));
-        workerURLs.push(workerURL, coreURL);
+        // Local Windows file:// pages have an opaque origin. Importing a second
+        // blob:null URL from their worker can fail even though creating the
+        // first worker succeeded. Put the verified core and worker in the same
+        // classic script, so getCore sees the factory without importScripts.
+        // Fail before the worker bundle if the embedded core is unavailable;
+        // there must be no network fallback for an offline program.
+        const registerCore = '\n;if(typeof TesseractCore!=="function"){throw new Error("내장 문자 인식 엔진을 불러오지 못했습니다.");}self.TesseractCore=TesseractCore;\n';
+        const workerURL = URL.createObjectURL(new Blob([assets.coreSource, registerCore, languageAdapter, assets.workerSource], { type: 'application/javascript' }));
+        workerURLs.push(workerURL);
         let initializationReject;
         const failed = new Promise((_, reject) => { initializationReject = reject; });
         const creation = createTrackedWorker([{ code: 'kor', data: assets.languages.kor }, { code: 'eng', data: assets.languages.eng }], {
-          workerPath: workerURL, workerBlobURL: false, corePath: coreURL + '#core.js', cacheMethod: 'none', gzip: true,
+          workerPath: workerURL, workerBlobURL: false, cacheMethod: 'none', gzip: true,
           logger: (event) => {
             if (generation !== workerGeneration) return;
             const statuses = { 'loading tesseract core': '내장 문자 인식 엔진 준비 중', 'initializing tesseract': '문자 인식 엔진 초기화 중', 'loading language traineddata': '내장 한글·영문 데이터 준비 중', 'initializing api': '문자 인식 준비 중', 'recognizing text': '사진의 이름·시리얼·날짜를 읽는 중' };
@@ -269,6 +275,7 @@
     cancellation.promise.catch(() => {});
     activeCancellation = cancellation;
     const began = Date.now(), passes = [];
+    let stage = 'image-load';
     const heartbeat = setInterval(() => {
       if (typeof progressListener === 'function') {
         try { progressListener({ status: currentPhase + ' · ' + Math.floor((Date.now() - began) / 1000) + '초', progress: currentProgress }); } catch (_) {}
@@ -284,7 +291,9 @@
     try {
       emit('사진을 준비하는 중', 0.01);
       const canvas = await deadline(imageCanvas(blob), 15000, '사진을 15초 안에 열지 못했습니다. 다른 JPG 또는 PNG 사진으로 다시 시도해 주세요.');
+      stage = 'engine-init';
       const worker = await getWorker();
+      stage = 'recognition';
       await deadline(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }), 5000, '문자 인식 설정을 적용하지 못했습니다. 다시 시도해 주세요.');
       record(await deadline(worker.recognize(canvas, {}, { text: true, blocks: true }), 60000, '사진을 60초 안에 읽지 못했습니다. 라벨을 크게 촬영한 사진으로 다시 시도해 주세요.'), 'original');
       let preliminary = current();
@@ -301,12 +310,16 @@
         await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
         record(await deadline(worker.recognize(cropCanvas(canvas, 0.08, 0.14, 0.8, 0.48), {}, { text: true, blocks: true }), 45000, '이름·시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop');
       }
-      const result = current(); emit('이름·시리얼·교정 날짜 인식 완료', 1); return result;
+      const result = current(); result.engineFailure = false; result.code = ''; result.errorCode = '';
+      emit('이름·시리얼·교정 날짜 인식 완료', 1); return result;
     } catch (error) {
       discardWorker();
       const result = current(); result.failed = true; result.cancelled = cancellation.cancelled;
+      result.engineFailure = !cancellation.cancelled && stage === 'engine-init';
+      result.code = cancellation.cancelled ? 'cancelled' : result.engineFailure ? 'engine-init' : stage === 'image-load' ? 'image-load' : 'ocr-failed';
+      result.errorCode = result.code;
       result.error = String(error && error.message || error || '문자 인식 오류').slice(0, 240);
-      result.warnings.unshift(cancellation.cancelled ? '인식을 중지했습니다. 다시 인식 버튼으로 시작할 수 있습니다.' : '자동 인식을 완료하지 못했습니다. 다시 시도하거나 사진을 보며 직접 입력할 수 있습니다.'); result.warnings.push(result.error);
+      result.warnings.unshift(cancellation.cancelled ? '인식을 중지했습니다. 다시 인식 버튼으로 시작할 수 있습니다.' : result.engineFailure ? '문자 인식 엔진을 시작하지 못해 사진의 글자를 읽지 못했습니다. 오류를 해결한 뒤 다시 시도해 주세요.' : '자동 인식을 완료하지 못했습니다. 다시 시도하거나 사진을 보며 직접 입력할 수 있습니다.'); result.warnings.push(result.error);
       emit(result.error, 1); return result;
     } finally { clearInterval(heartbeat); progressListener = null; if (activeCancellation === cancellation) activeCancellation = null; }
   }
@@ -315,7 +328,7 @@
     recognize(blob, tools, onProgress) {
       const generation = cancellationGeneration;
       const next = queue.then(() => {
-        if (generation !== cancellationGeneration) return Object.assign(parse('', tools), { failed: true, cancelled: true, error: '인식을 중지했습니다.' });
+        if (generation !== cancellationGeneration) return Object.assign(parse('', tools), { failed: true, cancelled: true, engineFailure: false, code: 'cancelled', errorCode: 'cancelled', error: '인식을 중지했습니다.' });
         return runRecognition(blob, tools, onProgress);
       });
       queue = next.catch(() => {}); return next;

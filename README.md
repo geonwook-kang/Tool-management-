@@ -1,4 +1,10 @@
-# 툴 검교정 매니저 — OneDrive 연결판 4.0
+# 툴 검교정 매니저 — OneDrive 연결판 4.1
+
+## 사진 인식 엔진 로딩 수정
+
+사용자 PC에서 `importScripts`가 `blob:null/...#core.js`를 불러오지 못해 OCR이 시작되지 않았습니다. 4.1은 코어와 워커를 하나의 스크립트에 포함해 이 추가 로딩을 제거합니다. 엔진 초기화 실패는 읽기 어려운 글씨와 구분하고, 이름·시리얼 입력란 대신 재시도를 표시합니다. 직접 입력은 선택한 경우에만 제공합니다.
+
+`opaque_origin_ocr_test.py`는 브라우저 관리 정책을 바꾸지 않고, 테스트 문서에만 추가 스크립트 로딩을 금지하는 CSP를 넣습니다. 이 조건에서 구버전의 동일한 `blob:null/...#core.js` 오류를 재현했고 수정판의 실제 OCR→엑셀 자동 반영을 검증했습니다. 일반 opaque-origin iframe만으로는 구버전 오류가 재현되지 않았으며, Windows 로컬 실행 자체나 원본 손글씨 정확도를 검증한 결과는 아닙니다. 실제 OCR 테스트는 생성한 인쇄 라벨을 사용합니다.
 
 ## 사진만 추가해 같은 엑셀에 자동 저장
 
@@ -17,11 +23,11 @@
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-OneDrive.zip)
+[실행용 ZIP 다운로드 — 인식 엔진 수정 4.1](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Auto-Fix-4.1.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-OneDrive.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Auto-Fix-4.1.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -53,6 +59,8 @@ python tests/automation_test.py --program /workspace/outputs/Tool-Manager-Fixed.
 python tests/offline_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/download_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/connected_file_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/opaque_origin_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/engine_failure_ui_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
