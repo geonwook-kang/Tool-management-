@@ -612,6 +612,109 @@
     }
     return cropCanvas(canvas.nativeCanvas || canvas, 0.05, 0.25, 0.9, 0.7);
   }
+  function curvedDateColumn(canvas, pass) {
+    // Partial years are location hints only. In particular, a month split as
+    // "2026.0" + "6.22" must not prevent a fresh read of the original pixels.
+    const years = pass.words.filter((word) => word.bbox && /^20\d{2}(?:[.\/\-년]\d{0,2}(?:[.\/\-월]\d{0,2})?)?\.?$/.test(word.text.trim()));
+    if (years.length < 2 || years.length > 6) return null;
+    const h = Math.min(...years.map((word) => boxHeight(word.bbox)));
+    const characterWidth = median(years.map((word) => (word.bbox.x1 - word.bbox.x0) / word.text.trim().length));
+    if (h < 8 || characterWidth < 3) return null;
+    const crop = boundedCrop(canvas, {
+      x0: Math.min(...years.map((word) => word.bbox.x0)) - characterWidth,
+      x1: Math.max(...years.map((word) => word.bbox.x0)) + characterWidth * 10.7,
+      y0: Math.min(...years.map((word) => word.bbox.y0)) - h * 0.8,
+      y1: Math.max(...years.map((word) => word.bbox.y1)) + h * 0.45
+    }, false);
+    if (!crop || crop.width < 100 || crop.height < 50) return null;
+    return flattenDateCells(crop, h, years.length);
+  }
+  function flattenDateCells(canvas, characterHeight, minimumCells) {
+    // A label wrapped around a round tool has curved table rules. Locate the
+    // thin, connected rules in the photograph and use their measured curve to
+    // straighten each column of pixels. Crop between rules; keep every digit,
+    // punctuation mark and grey level. No OCR/workbook value enters this step.
+    try {
+      const width = canvas.width, height = canvas.height, context = canvas.getContext('2d', { willReadFrequently: true });
+      const pixels = context.getImageData(0, 0, width, height).data;
+      const mask = new Uint8Array(width * height), pending = new Int32Array(width * height), rules = [];
+      for (let at = 0; at < mask.length; at++) mask[at] = pixels[at * 4 + 3] > 128 && (pixels[at * 4] + pixels[at * 4 + 1] + pixels[at * 4 + 2]) / 3 < 140 ? 1 : 0;
+      for (let start = 0; start < mask.length; start++) {
+        if (!mask[start]) continue;
+        let size = 1, next = 0, x0 = width, x1 = 0, y0 = height, y1 = 0;
+        pending[0] = start; mask[start] = 0;
+        while (next < size) {
+          const at = pending[next++], x = at % width, y = Math.floor(at / width);
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+          for (const adjacent of [x > 0 ? at - 1 : -1, x < width - 1 ? at + 1 : -1, y > 0 ? at - width : -1, y < height - 1 ? at + width : -1]) {
+            if (adjacent >= 0 && mask[adjacent]) { mask[adjacent] = 0; pending[size++] = adjacent; }
+          }
+        }
+        if (x1 - x0 < width * 0.75 || y1 - y0 > height * 0.5 || size / Math.max(1, x1 - x0) > height * 0.1) continue;
+        const sums = new Float64Array(width), counts = new Uint32Array(width);
+        for (let index = 0; index < size; index++) { const at = pending[index], x = at % width; sums[x] += Math.floor(at / width); counts[x]++; }
+        rules.push({ y0, y1, ys: Array.from(sums, (sum, x) => counts[x] ? sum / counts[x] : null) });
+      }
+      if (rules.length < 3 || rules.length > 8) return null;
+      rules.sort((a, b) => a.y0 + a.y1 - b.y0 - b.y1);
+      const reference = rules[Math.floor(rules.length / 2)], middle = median(reference.ys.filter((y) => y != null));
+      let previous = reference.ys.find((y) => y != null);
+      const shifts = reference.ys.map((y) => { if (y != null) previous = y; return previous - middle; });
+      const straight = document.createElement('canvas'); straight.width = width; straight.height = height;
+      const straightContext = straight.getContext('2d'), output = straightContext.createImageData(width, height); output.data.fill(255);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const sourceY = Math.round(y + shifts[x]);
+          if (sourceY < 0 || sourceY >= height) continue;
+          const from = (sourceY * width + x) * 4, to = (y * width + x) * 4;
+          output.data[to] = pixels[from]; output.data[to + 1] = pixels[from + 1]; output.data[to + 2] = pixels[from + 2];
+        }
+      }
+      straightContext.putImageData(output, 0, 0);
+      const boundaries = rules.map((rule) => median(rule.ys.map((y, x) => y == null ? null : y - shifts[x]).filter((y) => y != null)));
+      const margin = Math.max(3, Math.round(characterHeight * 0.1)), cells = [];
+      for (let index = 0; index + 1 < boundaries.length; index++) {
+        const top = Math.ceil(boundaries[index] + margin), bottom = Math.floor(boundaries[index + 1] - margin);
+        if (top >= 0 && bottom <= height && bottom - top > characterHeight * 0.35) cells.push({ top, bottom });
+      }
+      if (cells.length < Math.max(2, minimumCells || 2)) return null;
+      const result = document.createElement('canvas'); result.width = width + 60;
+      result.height = cells.reduce((total, cell) => total + cell.bottom - cell.top + 45, 30);
+      const resultContext = result.getContext('2d'); resultContext.fillStyle = '#fff'; resultContext.fillRect(0, 0, result.width, result.height);
+      let y = 20;
+      for (const cell of cells) { resultContext.drawImage(straight, 0, cell.top, width, cell.bottom - cell.top, 30, y, width, cell.bottom - cell.top); y += cell.bottom - cell.top + 45; }
+      return result;
+    } catch (_) { return null; }
+  }
+  function binaryDateCells(canvas) {
+    // Estimate the ink/paper threshold from the date cells, excluding the
+    // pure-white spacing we just added. Whole-photo Otsu can classify the grey
+    // paper itself as ink when the surrounding floor is much brighter.
+    const context = canvas.getContext('2d', { willReadFrequently: true }), image = context.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = image.data, histogram = new Uint32Array(256); let total = 0, sum = 0;
+    for (let at = 0; at < pixels.length; at += 4) {
+      const level = Math.round((pixels[at] + pixels[at + 1] + pixels[at + 2]) / 3);
+      if (level < 245) { histogram[level]++; total++; sum += level; }
+    }
+    let count = 0, leftSum = 0, best = -1, threshold = 0;
+    for (let level = 0; level < 245; level++) {
+      count += histogram[level]; leftSum += level * histogram[level];
+      if (!count || count === total) continue;
+      const variance = count * (total - count) * Math.pow(leftSum / count - (sum - leftSum) / (total - count), 2);
+      if (variance > best) { best = variance; threshold = level; }
+    }
+    if (best <= 0) return canvas;
+    for (let at = 0; at < pixels.length; at += 4) {
+      const level = (pixels[at] + pixels[at + 1] + pixels[at + 2]) / 3 <= threshold ? 0 : 255;
+      pixels[at] = level; pixels[at + 1] = level; pixels[at + 2] = level;
+    }
+    context.putImageData(image, 0, 0); return canvas;
+  }
+  function dateReadingFrame(canvas, padding) {
+    const result = document.createElement('canvas'); result.width = canvas.width + padding * 2; result.height = canvas.height + padding * 2;
+    const context = result.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, result.width, result.height); context.drawImage(canvas, padding, padding);
+    return result;
+  }
   function dateColumnFromLabels(canvas, pass) {
     // A tiny table may retain only "일 자" from each left-hand label while
     // suppressing the numbers as table cells. Use those row locations solely
@@ -709,6 +812,33 @@
     [[0.01, 0.42], [0.34, 0.74]].forEach(([top, bottom]) => panels.push({ x0: native.width * 0.03, x1: native.width * 0.97, y0: native.height * top, y1: native.height * bottom }));
     return panels.map((region) => ({ canvas: boundedCrop(native, region, false), region })).filter((item) => item.canvas);
   }
+  function identityTokenRegions(pass) {
+    // Broad scans may see the right serial with low confidence because a metal
+    // edge was segmented as part of its line. Use the observed glyph box only
+    // as a locator, then ask OCR to read the untouched pixels independently.
+    // No workbook characters or missing digits are supplied to the recognizer.
+    return pass.words.filter((word) => word.bbox && /^[^A-Za-z0-9]*[0-9][0-9 \t._-]{4,}[^A-Za-z0-9]*$/.test(word.text) && cleanSerial(word.text).length <= 20 && !dateOccurrences(word.text).length && !/^20\d{2}[ ._-]/.test(word.text))
+      .sort((a, b) => cleanSerial(b.text).length - cleanSerial(a.text).length || (b.confidence || 0) - (a.confidence || 0))
+      .slice(0, 2).map((word) => {
+        // An attached paper edge can be a separate punctuation word. Retain
+        // that small part of the same observed line so a final digit is not
+        // clipped by Tesseract's approximate word boundary.
+        const line = word.lineBox, original = word.bbox;
+        const box = line && line.x1 - line.x0 <= (original.x1 - original.x0) * 1.35 && boxHeight(line) <= boxHeight(original) * 1.5 ? unionBox([{ bbox: original }, { bbox: line }]) : original;
+        const h = boxHeight(box), w = box.x1 - box.x0;
+        return { x0: box.x0 - w * 0.05, x1: box.x1 + w * 0.05, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: cleanSerial(word.text).length };
+      });
+  }
+  function framedIdentityToken(canvas, region) {
+    const crop = boundedCrop(canvas, region, false);
+    if (!crop) return null;
+    // Preserve native stroke size. A plain frame separates a paper label from
+    // the crop boundary; it does not alter any pixel inside the source crop.
+    const padding = 20, framed = document.createElement('canvas');
+    framed.width = crop.width + padding * 2; framed.height = crop.height + padding * 2;
+    const context = framed.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, framed.width, framed.height); context.drawImage(crop, padding, padding);
+    return framed;
+  }
   function identityLines(canvas) {
     const lines = [];
     try {
@@ -762,7 +892,7 @@
       stage = 'engine-init';
       const worker = await getWorker();
       stage = 'recognition';
-      await deadline(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }), 5000, '문자 인식 설정을 적용하지 못했습니다. 다시 시도해 주세요.');
+      await deadline(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1', thresholding_method: '0' }), 5000, '문자 인식 설정을 적용하지 못했습니다. 다시 시도해 주세요.');
       record(await deadline(worker.recognize(canvas, {}, { text: true, blocks: true }), 60000, '사진을 60초 안에 읽지 못했습니다. 라벨을 크게 촬영한 사진으로 다시 시도해 주세요.'), 'original');
       let preliminary = current();
       if (preliminary.documentType === 'smax' || preliminary.documentType === 'unknown-smax') {
@@ -812,11 +942,13 @@
           await deadline(worker.setParameters({ tessedit_pageseg_mode: '11' }), 5000, '문자 인식 설정에 실패했습니다.');
           record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 라벨 탐색 시간이 초과되었습니다.'), 'date-probe');
           let discovered = passes[passes.length - 1];
+          let curved = curvedDateColumn(probe, discovered);
           let focused = dateColumnFromLabels(probe, discovered) || (spatialDates(discovered).length ? dateCrop(probe, discovered, true) : null);
           if (!focused) {
             await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
             record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 표 재탐색 시간이 초과되었습니다.'), 'date-probe-lines');
             discovered = passes[passes.length - 1];
+            if (!curved) curved = curvedDateColumn(probe, discovered);
             focused = dateColumnFromLabels(probe, discovered) || (spatialDates(discovered).length ? dateCrop(probe, discovered, true) : null);
           }
           if (focused) {
@@ -824,6 +956,14 @@
               emit('찾은 날짜를 원본 크기로 확인하는 중', 0.86);
               await deadline(worker.setParameters({ tessedit_pageseg_mode: psm }), 5000, '문자 인식 설정에 실패했습니다.');
               record(await deadline(worker.recognize(focused, {}, { text: true, blocks: true }), 45000, '확대 날짜 확인 시간이 초과되었습니다.'), 'date-crop-refine-' + psm);
+            }
+          }
+          if (curved && !(current().dateEvidence.method && current().dateEvidence.confidence >= 70)) {
+            emit('곡면 라벨의 날짜 칸을 펴서 다시 읽는 중', 0.88);
+            const input = dateReadingFrame(binaryDateCells(curved), 80);
+            for (const psm of ['6', '11']) {
+              await deadline(worker.setParameters({ tessedit_pageseg_mode: psm, thresholding_method: '0' }), 5000, '곡면 날짜 인식 설정에 실패했습니다.');
+              record(await deadline(worker.recognize(input, {}, { text: true, blocks: true }), 20000, '곡면 라벨 날짜 확인 시간이 초과되었습니다.'), 'date-crop-curve-' + psm);
             }
           }
         }
@@ -863,24 +1003,47 @@
           record(await deadline(worker.recognize(cropCanvas(canvas, 0.05, 0.4, 0.9, 0.6), {}, { text: true, blocks: true }), 45000, '하단 시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop-lower');
         }
         if (!strongIdentity(current())) {
-          const recoveryStart = Date.now(), budget = 90000, panels = identityPanels(canvas); let calls = 0;
-          const readTag = async (input, psm, source) => {
+          const recoveryStart = Date.now(), budget = 90000, panels = identityPanels(canvas), tokenCandidates = []; let calls = 0;
+          const readTag = async (input, psm, source, thresholdingMethod) => {
             if (calls >= 10 || Date.now() - recoveryStart >= budget) return false;
             const remaining = budget - (Date.now() - recoveryStart); calls++;
             emit('상단 이름·시리얼 표지를 각각 확인하는 중 · ' + calls + '/10', 0.97);
-            await deadline(worker.setParameters({ tessedit_pageseg_mode: psm }), Math.min(5000, remaining), '표지 인식 설정 시간이 초과되었습니다.');
-            record(await deadline(worker.recognize(input, {}, { text: true, blocks: true }), Math.min(20000, Math.max(1, budget - (Date.now() - recoveryStart))), '상단 표지 추가 확인 시간이 초과되었습니다.'), source);
-            return true;
+            await deadline(worker.setParameters({ tessedit_pageseg_mode: psm, thresholding_method: thresholdingMethod || '0' }), Math.min(5000, remaining), '표지 인식 설정 시간이 초과되었습니다.');
+            try {
+              record(await deadline(worker.recognize(input, {}, { text: true, blocks: true }), Math.min(20000, Math.max(1, budget - (Date.now() - recoveryStart))), '상단 표지 추가 확인 시간이 초과되었습니다.'), source);
+              return true;
+            } finally {
+              if (thresholdingMethod) await deadline(worker.setParameters({ thresholding_method: '0' }), 5000, '기본 인식 설정을 복구하지 못했습니다.');
+            }
           };
           try {
+            // Gray paper on a shiny tool can merge with the background under
+            // global thresholding. Sauvola separates strokes locally while
+            // preserving all recognized characters and the same proof rules.
+            // Keep this identity-only; dates need their own independent reads.
+            await readTag(canvas, '11', 'identity-probe-adaptive', '2');
             // Read each separate paper tag once before stopping on a match;
             // this also retains conflicts between two actual known serials.
             for (let index = 0; index < panels.length; index++) {
               const panel = panels[index].canvas;
-              if (!await readTag(boundedCrop(panel, { x0: 0, y0: 0, x1: panel.width, y1: panel.height }, false, 1.5), '6', 'identity-probe-panel-' + index)) {
+              const input = boundedCrop(panel, { x0: 0, y0: 0, x1: panel.width, y1: panel.height }, false, 1.5);
+              if (!await readTag(input, '6', 'identity-probe-panel-' + index)) {
                 passes.push({ text: '', confidence: null, source: 'identity-probe-incomplete', words: [] });
                 recoveryWarnings.push('표지 후보를 모두 확인하지 못해 자동 반영을 보류했습니다.');
                 break;
+              }
+              identityTokenRegions(passes[passes.length - 1]).forEach((region, token) => tokenCandidates.push({ canvas: input, region, index, token }));
+            }
+            if (!strongIdentity(current())) {
+              for (const candidate of tokenCandidates.sort((a, b) => b.region.digitCount - a.region.digitCount)) {
+                // Map locator coordinates back to native panel pixels before
+                // adding the surrounding frame. Enlargement hurt this proof.
+                const panel = panels[candidate.index].canvas;
+                const sx = panel.width / candidate.canvas.width, sy = panel.height / candidate.canvas.height;
+                const region = { x0: candidate.region.x0 * sx, x1: candidate.region.x1 * sx, y0: candidate.region.y0 * sy, y1: candidate.region.y1 * sy };
+                const input = framedIdentityToken(panel, region);
+                if (input && !await readTag(input, '7', 'identity-probe-token-' + candidate.index + '-' + candidate.token)) break;
+                if (strongIdentity(current())) break;
               }
             }
             if (!strongIdentity(current())) {

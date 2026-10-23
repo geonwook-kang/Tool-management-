@@ -3,7 +3,8 @@
 Synthetic pictures contain located date/tag markers and white distractors.
 ToolOCR.recognize, cropping, parsing and assessment run unchanged. Only worker
 responses are controlled. The tests measure ROI coverage/retry safety, not OCR
-accuracy on the user's unavailable inline JPEG. Company data remains read only.
+accuracy; actual_photo_ocr_test.py exercises the provided original JPEG instead.
+Company data remains read only.
 """
 from __future__ import annotations
 
@@ -51,11 +52,16 @@ def make_picture(path, white_holes=False, table_borders=False):
 
 HARNESS = r"""({scenario,serial,labels,width,height,datePoints,tagPoints}) => {
     window.roiCalls=[];window.roiParameters=[];window.roiTerminations=0;window.roiHung=false;
-    const mappings=new WeakMap(),nativeDraw=CanvasRenderingContext2D.prototype.drawImage;
+    const mappings=new WeakMap(),frames=new WeakMap(),nativeDraw=CanvasRenderingContext2D.prototype.drawImage;
     // This instrumentation observes the real drawImage source rectangles. It
     // does not change pixels, crop bounds, recognition inputs or production code.
     CanvasRenderingContext2D.prototype.drawImage=function(source,...args){
         const output=nativeDraw.call(this,source,...args);
+        if(args.length===2&&args[0]===20&&args[1]===20&&this.canvas.width===source.width+40&&this.canvas.height===source.height+40&&source.getContext){
+            const original=source.getContext('2d').getImageData(0,0,source.width,source.height).data;
+            const copied=this.getImageData(20,20,source.width,source.height).data;
+            frames.set(this.canvas,original.length===copied.length&&original.every((value,index)=>value===copied[index]));
+        }
         const from=mappings.get(source)||(source.width===width&&source.height===height?
             {x0:0,y0:0,x1:width,y1:height}:null);
         if(from){
@@ -81,7 +87,10 @@ HARNESS = r"""({scenario,serial,labels,width,height,datePoints,tagPoints}) => {
             const at=(y*canvas.width+x)*4;
             return (pixels[at]+pixels[at+1]+pixels[at+2])/3<45;
         }).length;
-        return {width:canvas.width,height:canvas.height,roi,hash,
+        const whiteFrame=canvas.width>40&&canvas.height>40&&[[0,0],[canvas.width-1,0],[0,canvas.height-1],[canvas.width-1,canvas.height-1]].every(([x,y])=>{
+            const at=(y*canvas.width+x)*4;return pixels[at]===255&&pixels[at+1]===255&&pixels[at+2]===255;
+        });
+        return {width:canvas.width,height:canvas.height,roi,hash,whiteFrame,framePixelsExact:frames.get(canvas)===true,
             dateMarkers:blackMarkers(datePoints),tagMarkers:blackMarkers(tagPoints),
             parameters:{...(roiParameters.at(-1)||{})}};
     };
@@ -128,6 +137,16 @@ HARNESS = r"""({scenario,serial,labels,width,height,datePoints,tagPoints}) => {
             }
             if(index<2)return data(labels);
             if(index<4)return data('',0);
+            if(scenario.startsWith('tag_token')){
+                // Low-confidence whole-panel text is a locator, never proof.
+                // Only a small unchanged glyph crop with a white outer frame
+                // receives the independently controlled confirmation below.
+                if(entry.whiteFrame&&entry.width<600&&entry.height<250&&entry.parameters.tessedit_pageseg_mode==='7')
+                    return data(serial,scenario==='tag_token_weak'?69:95);
+                if(entry.tagMarkers===2)return data(serial,35,[
+                    {text:serial,confidence:35,bbox:box([835,160,1090,200],entry)}]);
+                return data('',0);
+            }
             if(tagFound&&(scenario==='tag_timeout'||scenario==='tag_cancel')){
                 window.roiHung=true;
                 if(scenario==='tag_timeout'){
@@ -233,9 +252,25 @@ def tag_recovery(page, url, workbook, photo, scenario):
     assert not result["failed"], result
     sources = [p["source"] for p in result["passes"]]
     panel_calls = [result["calls"][i] for i, source in enumerate(sources) if source.startswith("identity-probe-panel-")]
-    assert 2 <= len(panel_calls) <= 4, result
-    assert any(call["tagMarkers"] == 2 for call in panel_calls), result
+    if scenario != "tag_timeout":
+        assert 2 <= len(panel_calls) <= 4, result
+        assert any(call["tagMarkers"] == 2 for call in panel_calls), result
     assert result["last"] == LAST and result["due"] == DUE, result
+    adaptive = sources.index("identity-probe-adaptive")
+    assert result["calls"][adaptive]["parameters"]["thresholding_method"] == "2", result
+    assert all(call["parameters"].get("thresholding_method") == "0" for call in result["calls"][adaptive + 1:]), result
+    assert result["calls"][0]["parameters"]["thresholding_method"] == "0", result
+    if scenario.startswith("tag_token"):
+        focused = [result["calls"][i] for i, source in enumerate(sources) if source.startswith("identity-probe-token-")]
+        assert focused and all(call["whiteFrame"] and call["framePixelsExact"] for call in focused), result
+        assert all(call["width"] < 600 and call["height"] < 250 for call in focused), result
+        assert all(call["parameters"]["tessedit_pageseg_mode"] == "7" for call in focused), result
+        assert result["assessment"]["eligible"] == (scenario != "tag_token_weak"), result
+        if scenario != "tag_token_weak":
+            assert result["assessment"]["serial"] == SERIAL, result
+        return {"low_confidence_serial_bbox_drives_independent_native_crop": True,
+                "outside_crop_white_frame_preserves_glyph_pixels": True,
+                "weak_followup_remains_pending": scenario == "tag_token_weak"}
     if scenario == "tag_timeout":
         assert result["incomplete"] and result["replayIncomplete"], result
         assert not result["assessment"]["eligible"], result
@@ -257,7 +292,7 @@ def main():
         tags = make_picture(temporary / "white-components-fixture.png", white_holes=True)
         browser = playwright.chromium.launch(executable_path=args.chromium, headless=True, args=["--no-sandbox"])
         result = {}
-        for scenario in ["date_column_priority", "date_wide", "date_one_weak_confirmation", "tag_wide", "tag_timeout", "tag_cancel"]:
+        for scenario in ["date_column_priority", "date_wide", "date_one_weak_confirmation", "tag_wide", "tag_token", "tag_token_weak", "tag_timeout", "tag_cancel"]:
             context = browser.new_context(locale="ko-KR")
             context.on("request", lambda request: remote.append(request.url)
                 if urlsplit(request.url).scheme in {"http", "https"} and urlsplit(request.url).netloc != urlsplit(url).netloc else None)
