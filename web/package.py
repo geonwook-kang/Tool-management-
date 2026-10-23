@@ -9,5 +9,6 @@ with ZipFile(a.output_dir/'Tool-Manager.zip','w',compression=ZIP_DEFLATED,compre
  z.write(html,'Tool-Manager.html');z.write(root/'사용법.txt','사용법.txt')
  for file in sorted((root/'vendor').glob('*.txt')):z.write(file,'licenses/'+file.name)
 (a.output_dir/'사용법.txt').write_bytes((root/'사용법.txt').read_bytes())
-files=[html,a.output_dir/'Tool-Manager.zip'];(a.output_dir/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(f.read_bytes()).hexdigest()+'  '+f.name+'\n' for f in files))
+onedrive=a.output_dir/'Tool-Manager-OneDrive.zip';onedrive.write_bytes((a.output_dir/'Tool-Manager.zip').read_bytes())
+files=[html,a.output_dir/'Tool-Manager.zip',onedrive];(a.output_dir/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(f.read_bytes()).hexdigest()+'  '+f.name+'\n' for f in files))
 print('Packaged',*[f'{f.name}: {f.stat().st_size:,}B' for f in files])

@@ -1,1 +1,2 @@
-435edea0d6fb0fe180357e91587a48b41207ab9f855253171c5f9e263fd67093  Tool-Manager.zip
+fe5f7144b6d0ccf9bb4b55cbd54e728bf9d1fa602bbb7c10c1008f009aaddef8  Tool-Manager.zip
+fe5f7144b6d0ccf9bb4b55cbd54e728bf9d1fa602bbb7c10c1008f009aaddef8  Tool-Manager-OneDrive.zip

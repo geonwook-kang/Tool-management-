@@ -2,31 +2,94 @@
 'use strict';
 window.addEventListener('DOMContentLoaded',()=>{
 const $=id=>document.getElementById(id);
-const state={model:null,workbookName:'',photos:[],selectedId:null,busy:false,preparing:false,preparedResult:null,preparationError:'',revision:0,cancelRequested:false};
+const state={model:null,workbookName:'',photos:[],selectedId:null,busy:false,preparing:false,preparedResult:null,preparationError:'',revision:0,cancelRequested:false,source:{connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:0,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false}};
 const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>state.photos.filter(p=>p.review),automatic=()=>$('automatic-mode').checked;
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const methods={serial:'시리얼 번호 일치',name:'이름 일치',labelled:'교정 라벨 날짜','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
-let seq=0,timer;
+let seq=0,timer,restoreTask=Promise.resolve();
+const pendingRows=()=>approved().filter(p=>!state.source.connected||!p.saved);
+function sourceFailure(error){const info=ToolConnectedFile.inspect();state.source.error=error.message;state.source.needsPermission=!!info.needsPermission;state.source.needsReconnect=!!info.needsReconnect;if(info.needsPermission||info.needsReconnect)state.source.connected=false;}
+
+function refreshSource(){
+ const c=state.source,locked=state.busy||state.preparing||c.saving;
+ for(const id of ['connect-onedrive','reconnect-onedrive','disconnect-onedrive','retry-connected-save'])$(id).disabled=locked;
+ $('reconnect-onedrive').hidden=!c.needsPermission;
+ $('disconnect-onedrive').hidden=!(c.connected||c.needsPermission||c.needsReconnect);
+ $('retry-connected-save').hidden=!c.error||!c.connected;
+ $('download-backup').hidden=!c.hasBackup;
+ $('connection-status').textContent=c.saving?'연결된 엑셀에 저장 중…':c.error?'자동 저장 확인 필요: '+c.error:c.connected?c.name+' · 연결됨'+(c.savedAt?' · 이 PC 파일 저장 '+c.savedAt:''):c.needsPermission?c.name+' · 파일 권한 재연결이 필요합니다.':'OneDrive 동기화 폴더의 엑셀을 한 번 연결하면 사진만 추가할 수 있습니다.';
+ $('connection-status').className='summary'+(c.error?' source-error':'');
+ for(const el of $('review-panel').querySelectorAll('input,select,button'))el.disabled=state.busy||c.saving;
+}
+function resetPhotoConnection(){for(const p of state.photos)Object.assign(p,{saved:null,review:null,approval:null,result:null,draft:{},assessment:null,error:null,edited:false});}
+async function adoptSource(snapshot,{reset=false}={}){
+ const model=await ToolWorkbook.load(snapshot.bytes),c=state.source;
+ state.model=model;state.workbookName=snapshot.file.name;c.connected=true;c.needsPermission=false;c.needsReconnect=false;c.name=snapshot.file.name;c.version=snapshot.version;
+ if(reset)resetPhotoConnection();
+ else for(const p of state.photos){
+  if(p.saved){const matches=model.tools.filter(t=>ToolWorkbook.normalizeSerial(t.serial)===ToolWorkbook.normalizeSerial(p.saved.serial)&&t.name===p.saved.name);if(matches.length===1){p.draft.toolId=matches[0].id;if(p.review)p.review.toolId=matches[0].id;}continue;}
+  if(p.approval==='manual'){
+   const hits=model.tools.filter(t=>ToolWorkbook.normalizeSerial(t.serial)===ToolWorkbook.normalizeSerial(p.draft.serial)&&t.name===p.draft.name);
+   if(hits.length===1){p.draft.toolId=hits[0].id;p.review={...p.draft,...p.image};if(ToolWorkbook.validate(model,p.review).length){p.review=null;p.approval=null;}}
+   else{p.review=null;p.approval=null;}
+  }else if(p.result&&!p.result.failed&&!p.edited){const old=p.result;applyOCR(p,ToolOCR.parse(old.text,model.tools,{confidence:old.confidence,passes:old.passes}));}
+ }
+ $('workbook-summary').textContent=`${c.name} · 연결 파일 · ${model.tools.length}개 툴`;$('workbook-badge').textContent='연결됨';
+}
+async function refreshConnectedSource(){const snapshot=await ToolConnectedFile.read();await adoptSource(snapshot);return snapshot;}
+async function connectSource(requestPermission=false){
+ if(state.busy||state.preparing||state.source.saving)return;
+ state.busy=true;refresh();let ok=false;
+ try{
+  if(requestPermission)await ToolConnectedFile.requestAccess();
+  else await ToolConnectedFile.connect({validate:async file=>ToolWorkbook.load(await file.arrayBuffer())});
+  const snapshot=await ToolConnectedFile.read();invalidate();state.source.epoch++;state.source.error='';if(!requestPermission){state.source.savedAt='';state.source.saveCount=0;}await adoptSource(snapshot,{reset:!requestPermission});ok=true;
+  const info=ToolConnectedFile.inspect();state.source.hasBackup=!!(await ToolConnectedFile.takeBackup());
+  status('이 PC의 동기화 엑셀을 연결했습니다. 이후에는 사진만 추가하면 자동 저장합니다. OneDrive의 서버 동기화 상태는 OneDrive에서 확인하세요.'+(info.persistent===false?' 이 브라우저에서는 연결을 기억하지 못해 다음 실행 때 다시 선택해야 합니다.':''),'success');
+ }catch(e){status('엑셀 연결 실패: '+e.message,'error');}
+ finally{state.busy=false;refresh();render();}
+ if(ok&&automatic()&&state.photos.some(p=>!p.saved))await recognize(state.photos.filter(p=>!p.saved).map(p=>p.id));
+}
+async function restoreSource(){
+ state.restoring=true;state.busy=true;refresh();
+ try{
+  const info=await ToolConnectedFile.restore();state.source.hasBackup=!!(await ToolConnectedFile.takeBackup());
+  if(info.connected){state.busy=true;await refreshConnectedSource();status('기억한 엑셀을 불러왔습니다. 사진만 추가하면 됩니다.','success');}
+  else if(info.needsPermission){state.source.needsPermission=true;state.source.name=info.name||'';status('기억한 엑셀을 사용하려면 「권한 다시 연결」을 눌러 주세요.');}
+  else if(info.needsReconnect){state.source.needsReconnect=true;state.source.name=info.name||'';state.source.error=info.statusMessage||'이전에 연결한 파일을 다시 선택해 주세요.';status(state.source.error,'error');}
+ }catch(e){status('이전 엑셀 연결을 복원하지 못했습니다. 다시 연결해 주세요. '+e.message,'error');}
+ finally{state.restoring=false;state.busy=false;refresh();render();}
+}
+async function retrySource(){
+ if(state.busy||state.preparing||!state.source.connected)return;
+ state.busy=true;invalidate();state.source.error='';refresh();
+ try{await refreshConnectedSource();reconcile();}catch(e){sourceFailure(e);status(e.message,'error');}
+ finally{state.busy=false;refresh();render();}
+ if(!state.source.error)await prepareResult();
+}
+
 function invalidate(){state.revision++;state.preparationError='';if(state.preparedResult)URL.revokeObjectURL(state.preparedResult.url);state.preparedResult=null;$('automatic-result-download').hidden=true;$('automatic-result-download').removeAttribute('href');}
 function refresh(){
+ refreshSource();
  const selected=approved(),autos=selected.filter(p=>p.approval==='automatic').length,pending=state.photos.length-selected.length;
  $('photo-count').textContent=state.photos.length+'장';
- $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
+ $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.saved?'✓ 연결 파일 저장됨':p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
  $('photo-list').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>selectPhoto(b.dataset.id));
- for(const id of ['workbook','photos','automatic-mode'])$(id).disabled=state.busy;
+ for(const id of ['workbook','photos','automatic-mode'])$(id).disabled=state.busy||state.source.saving;
+ $('photos').disabled=state.busy||state.source.saving||state.source.needsPermission||state.source.needsReconnect;
  $('recognize-all').disabled=state.busy||!state.model||!state.photos.length;
  $('cancel-recognition').hidden=!state.busy||!state.photos.length;
- $('export').disabled=state.busy||state.preparing||(!state.preparedResult&&!(state.preparationError&&selected.length));$('export').textContent=state.preparationError?'엑셀 다시 생성·저장':'자동 생성된 엑셀 저장 ↓';$('download-log').disabled=state.busy||!selected.length;
+ $('export').disabled=state.busy||state.preparing||(!state.preparedResult&&!(state.preparationError&&selected.length));$('export').textContent=state.preparationError?'엑셀 다시 생성·저장':state.source.connected?'저장된 엑셀 사본 받기 ↓':'자동 생성된 엑셀 저장 ↓';$('download-log').disabled=state.busy||!selected.length;
  $('process-summary').textContent=`자동 반영 ${autos}장 · 보정 반영 ${selected.length-autos}장 · 확인 필요 ${pending}장`;
- $('export-summary').textContent=state.preparing?'날짜와 사진을 엑셀에 반영하는 중…':state.preparedResult?`${selected.length}개 툴 반영 완료 · 수정본 준비됨`:`반영할 사진 ${selected.length}장 / 전체 ${state.photos.length}장`;
+ $('export-summary').textContent=state.preparing?'날짜와 사진을 엑셀에 반영하는 중…':state.source.error?'연결 파일 자동 저장 확인 필요':state.source.connected&&state.source.savedAt?`${selected.length}장 처리됨 · 연결 파일 자동 저장 완료`:state.preparedResult?`${selected.length}개 툴 반영 완료 · 수정본 준비됨`:`반영할 사진 ${selected.length}장 / 전체 ${state.photos.length}장`;
  $('review-counter').textContent=pending?'확인 필요 '+pending+'장':selected.length?'자동 처리 완료':'대기';
  const isAuto=current()?.approval==='automatic';$('manual-confirm-row').hidden=isAuto;$('save-review').hidden=isAuto;
- if(state.preparedResult){const a=$('automatic-result-download');a.href=state.preparedResult.url;a.download=state.preparedResult.name;a.hidden=false;}
+ if(state.preparedResult){const a=$('automatic-result-download');a.href=state.preparedResult.url;a.download=state.preparedResult.name;a.textContent=state.source.connected&&!state.source.error?'연결 파일에 저장 완료 · 사본 다운로드 (선택)':'자동 반영된 엑셀 저장 ↓';a.hidden=false;}
 }
 function saveDraft(){const p=current();if(p&&state.model&&!$('review-panel').hidden)p.draft=Object.fromEntries(['name','serial','last','due'].map(k=>[k,$(k).value]).concat([['toolId',$('tool-select').value]]));}
 function schedule(){clearTimeout(timer);if(approved().length)timer=setTimeout(prepareResult,450);}
-function changed(){saveDraft();const p=current();if(p){p.review=null;p.approval=null;p.edited=true;$('confirm').checked=false;$('draft-note').textContent='수정한 값을 확인한 뒤 보정한 내용 반영을 누르세요.';$('ocr-warning').classList.remove('auto-success');$('ocr-warning').textContent='입력값이 변경되어 이전 자동 반영을 취소했습니다.';}invalidate();refresh();schedule();}
+function changed(){saveDraft();if(current())current().saved=null;const p=current();if(p){p.review=null;p.approval=null;p.edited=true;$('confirm').checked=false;$('draft-note').textContent='수정한 값을 확인한 뒤 보정한 내용 반영을 누르세요.';$('ocr-warning').classList.remove('auto-success');$('ocr-warning').textContent='입력값이 변경되어 이전 자동 반영을 취소했습니다.';}invalidate();refresh();schedule();}
 function renderExisting(){const t=state.model?.tools.find(t=>t.id===$('tool-select').value);$('existing').textContent=t?`엑셀 위치: ${t.sheet} ${t.row}행\n기존 교정일: ${t.last||'미등록'} · 다음: ${t.due||'미등록'}\n주기: ${t.interval} ${t.cycle}`:'불확실한 사진만 항목과 날짜를 직접 확인하세요.';}
 function render(){
  const p=current(),visible=!!(p&&state.model);$('review-panel').hidden=!visible;$('review-placeholder').hidden=visible;if(!visible)return;
@@ -41,9 +104,10 @@ function render(){
 }
 function selectPhoto(id){if(state.busy)return;saveDraft();state.selectedId=id;refresh();render();}
 async function readWorkbook(file){
- if(!file||state.busy)return;if(file.size>100*1024*1024){status('엑셀은 100MB 이하로 선택해 주세요.','error');return;}
+ if(state.restoring)await restoreTask;
+ if(!file||state.busy||state.source.saving)return;if(file.size>100*1024*1024){status('엑셀은 100MB 이하로 선택해 주세요.','error');return;}
  state.busy=true;refresh();status('엑셀의 툴 목록을 읽고 있습니다…');let loaded=false;
- try{const model=await ToolWorkbook.load(await file.arrayBuffer());invalidate();state.model=model;state.workbookName=file.name;state.photos.forEach(p=>Object.assign(p,{review:null,approval:null,result:null,draft:{},assessment:null,error:null,edited:false}));
+ try{const model=await ToolWorkbook.load(await file.arrayBuffer());if(state.source.connected||state.source.needsPermission||state.source.needsReconnect){await ToolConnectedFile.disconnect();Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,version:'',name:'',error:'',savedAt:'',epoch:state.source.epoch+1});resetPhotoConnection();}invalidate();state.model=model;state.workbookName=file.name;state.photos.forEach(p=>Object.assign(p,{review:null,approval:null,result:null,draft:{},assessment:null,error:null,edited:false}));
  $('workbook-summary').textContent=`${file.name} · ${new Set(model.tools.map(t=>t.sheet)).size}개 지역 · ${model.tools.length}개 툴`;$('workbook-badge').textContent=model.tools.length+'개 툴';loaded=true;status('엑셀을 불러왔습니다. 사진을 올리면 자동 처리를 시작합니다.','success');
  }catch(e){status('엑셀 읽기 실패: '+e.message,'error');}finally{state.busy=false;refresh();render();}
  if(loaded&&automatic()&&state.photos.length)await recognize(state.photos.map(p=>p.id));
@@ -55,7 +119,8 @@ async function imageData(file){
  try{if(image.width*image.height>40e6)throw new Error('사진은 4천만 픽셀 이하로 선택해 주세요.');const s=Math.min(1,2000/Math.max(image.width,image.height)),c=document.createElement('canvas');c.width=Math.round(image.width*s);c.height=Math.round(image.height*s);c.getContext('2d').drawImage(image,0,0,c.width,c.height);const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.92));if(!blob)throw new Error('사진 변환에 실패했습니다.');return {photoBytes:new Uint8Array(await blob.arrayBuffer()),photoExtension:'jpg',photoWidth:c.width,photoHeight:c.height};}finally{image.close?.();}
 }
 async function addPhotos(files){
- if(state.busy)return;saveDraft();state.busy=true;refresh();const ids=[],errors=[];
+ if(state.restoring)await restoreTask;
+ if(state.busy||state.source.saving)return;saveDraft();state.busy=true;refresh();const ids=[],errors=[];
  try{for(const file of files){if(!/\.(jpe?g|png|webp)$/i.test(file.name)||file.size>25*1024*1024){errors.push(file.name+': JPG/PNG/WebP, 25MB 이하만 가능합니다.');continue;}if(state.photos.some(p=>p.file.name===file.name&&p.file.size===file.size&&p.file.lastModified===file.lastModified))continue;
  try{const image=await imageData(file),id=String(++seq);ids.push(id);state.photos.push({id,file,image,url:URL.createObjectURL(file),draft:{},result:null,review:null,approval:null,assessment:null,error:null,edited:false});}catch(e){errors.push(file.name+': '+e.message);}}
  if(!state.selectedId)state.selectedId=state.photos[0]?.id||null;if(ids.length)invalidate();
@@ -69,17 +134,17 @@ function applyOCR(p,result){
 }
 function reconcile(){
  if(!state.model||!automatic())return;
- for(const p of state.photos)if(p.result&&!p.edited&&p.approval!=='manual'){p.assessment=ToolAutomation.assess(state.model,p.result);p.review=null;p.approval=null;}
- const eligible=state.photos.filter(p=>p.assessment?.eligible&&!p.edited&&p.approval!=='manual');
+ for(const p of state.photos)if(p.result&&!p.edited&&!p.saved&&p.approval!=='manual'){p.assessment=ToolAutomation.assess(state.model,p.result);p.review=null;p.approval=null;}
+ const eligible=state.photos.filter(p=>p.assessment?.eligible&&!p.edited&&!p.saved&&p.approval!=='manual');
  for(const p of eligible){const a=p.assessment;
- if(eligible.filter(q=>q.assessment.toolId===a.toolId).length>1||state.photos.some(q=>q.approval==='manual'&&q.review.toolId===a.toolId)){p.assessment={...a,eligible:false,reasons:['같은 툴의 사진이 여러 장입니다. 중복 사진을 제거하거나 직접 확인해 주세요.']};continue;}
+ if(eligible.filter(q=>q.assessment.toolId===a.toolId).length>1||state.photos.some(q=>q.approval==='manual'&&!q.saved&&q.review.toolId===a.toolId)){p.assessment={...a,eligible:false,reasons:['같은 툴의 사진이 여러 장입니다. 중복 사진을 제거하거나 직접 확인해 주세요.']};continue;}
  const update={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due,...p.image},errors=ToolWorkbook.validate(state.model,update);
  if(errors.length){p.assessment={...a,eligible:false,reasons:errors};continue;}p.draft={toolId:a.toolId,name:a.name,serial:a.serial,last:a.last,due:a.due};p.review=update;p.approval='automatic';
  }
 }
 async function recognize(ids){
- if(state.busy||!state.model||!ids.length)return;saveDraft();invalidate();state.busy=true;state.cancelRequested=false;refresh();render();
- try{for(let i=0;i<ids.length;i++){
+ if(state.busy||state.source.saving||!state.model||!ids.length)return;const savesBefore=state.source.saveCount;saveDraft();invalidate();state.busy=true;state.cancelRequested=false;refresh();render();
+ try{if(state.source.connected){state.source.error='';try{await refreshConnectedSource();}catch(e){sourceFailure(e);status('연결된 엑셀을 읽지 못했습니다. '+e.message,'error');return;}}for(let i=0;i<ids.length;i++){
  if(state.cancelRequested)break;const p=state.photos.find(p=>p.id===ids[i]);if(!p)continue;p.review=null;p.approval=null;
  const prefix=`${i+1}/${ids.length} · ${p.file.name}`;status(prefix+'\n오프라인 엔진으로 이름·시리얼·교정 날짜를 읽고 있습니다…');
  try{const result=await ToolOCR.recognize(p.file,state.model.tools,event=>{$('progress').style.width=100*(i+(event.progress||0))/ids.length+'%';$('runtime-status').textContent=event.status||'인식 중';status(prefix+'\n'+(event.status||'인식 중'));});
@@ -89,17 +154,30 @@ async function recognize(ids){
  }finally{state.busy=false;refresh();render();}
  await prepareResult();const autos=state.photos.filter(p=>p.approval==='automatic').length,pending=state.photos.filter(p=>!p.review).length;
  $('runtime-status').textContent=state.cancelRequested?'인식을 중지했습니다. 다시 인식하거나 수동으로 계속할 수 있습니다.':'오프라인 처리 완료 · 외부 서버 전송 없음';
- if(state.preparationError)status('엑셀 생성 실패: '+state.preparationError,'error');else status(state.cancelRequested?'인식을 중지했습니다. 처리된 결과는 보존됩니다.':`자동 처리 완료: ${autos}장 자동 반영 · ${pending}장 확인 필요.${state.preparedResult?' 수정본이 준비되었습니다.':''}`,pending?'':'success');
+ if(state.source.error)status('연결 파일 저장 결과를 확인해 주세요. '+state.source.error+' 수정본은 별도로 저장할 수 있습니다.','error');else if(state.source.connected&&state.source.saveCount>savesBefore)status('이 PC의 연결된 엑셀에 저장했습니다. OneDrive 서버 반영 여부는 OneDrive 동기화 상태를 확인하세요.','success');else if(state.preparationError)status('엑셀 생성 실패: '+state.preparationError,'error');else status(state.cancelRequested?'인식을 중지했습니다. 처리된 결과는 보존됩니다.':`자동 처리 완료: ${autos}장 자동 반영 · ${pending}장 확인 필요.${state.preparedResult?' 수정본이 준비되었습니다.':''}`,pending?'':'success');
 }
 async function prepareResult(){
- clearTimeout(timer);if(state.busy||state.preparing){schedule();return null;}const rows=approved();if(!state.model||!rows.length){refresh();return null;}
- const revision=state.revision,model=state.model;state.preparing=true;state.preparationError='';refresh();
- try{const bytes=await ToolWorkbook.apply(model,rows.map(p=>p.review));if(revision!==state.revision||model!==state.model)return null;const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),stamp=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date()),name=state.workbookName.replace(/\.xlsx$/i,'')+'_수정본_'+stamp+'.xlsx';if(state.preparedResult)URL.revokeObjectURL(state.preparedResult.url);state.preparedResult={bytes,blob,url:URL.createObjectURL(blob),name,count:rows.length};return state.preparedResult;
+ clearTimeout(timer);if(state.busy||state.preparing){schedule();return null;}const rows=pendingRows();if(!state.model||!rows.length){refresh();return null;}
+ const revision=state.revision,model=state.model,sourceEpoch=state.source.epoch,sourceVersion=state.source.version,entries=rows.map(p=>({p,update:{...p.review},meta:{...model.tools.find(t=>t.id===p.review.toolId)}}));state.preparing=true;state.preparationError='';refresh();
+ try{const bytes=await ToolWorkbook.apply(model,rows.map(p=>p.review));if(revision!==state.revision||model!==state.model)return null;const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),stamp=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date()),name=state.workbookName.replace(/\.xlsx$/i,'')+'_수정본_'+stamp+'.xlsx';if(state.preparedResult)URL.revokeObjectURL(state.preparedResult.url);state.preparedResult={bytes,blob,url:URL.createObjectURL(blob),name,count:rows.length};
+ if(state.source.connected){
+  const updatedModel=await ToolWorkbook.load(bytes);
+  if(revision!==state.revision||sourceEpoch!==state.source.epoch)return null;
+  state.source.saving=true;refresh();
+  try{
+   const saved=await ToolConnectedFile.save({bytes,expectedVersion:sourceVersion,verifyCurrent:()=>revision===state.revision&&sourceEpoch===state.source.epoch});
+   state.source.version=saved.version;state.source.saveCount++;state.source.error='';state.source.hasBackup=true;state.source.savedAt=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());state.model=updatedModel;
+   for(const entry of entries)entry.p.saved={...entry.meta,last:entry.update.last,due:entry.update.due,version:saved.version};
+   status('연결한 이 PC의 엑셀에 저장했습니다. OneDrive 동기화는 별도로 진행됩니다.','success');
+  }catch(e){sourceFailure(e);status('연결 파일 저장 확인 필요: '+e.message+' 수정본 다운로드는 사용할 수 있습니다.','error');}
+  finally{state.source.saving=false;refresh();render();}
+ }
+ return state.preparedResult;
  }catch(e){if(revision===state.revision){state.preparationError=e.message;status('엑셀 생성 실패: '+e.message,'error');}return null;}finally{state.preparing=false;refresh();if(revision!==state.revision)schedule();}
 }
 async function saveReview(e){
  e.preventDefault();const p=current();if(!p||!state.model||!$('confirm').checked||state.busy)return;saveDraft();const update={...p.draft,...p.image};
- try{const errors=ToolWorkbook.validate(state.model,[...state.photos.filter(q=>q.id!==p.id&&q.review).map(q=>q.review),update]);if(errors.length)throw new Error(errors.join('\n'));invalidate();p.review=update;p.approval='manual';p.edited=true;refresh();render();await prepareResult();if(!state.preparationError)status('보정한 내용이 반영되었습니다. 수정본을 저장하세요.','success');
+ try{const errors=ToolWorkbook.validate(state.model,[...state.photos.filter(q=>q.id!==p.id&&q.review&&!q.saved).map(q=>q.review),update]);if(errors.length)throw new Error(errors.join('\n'));invalidate();p.review=update;p.approval='manual';p.edited=true;refresh();render();await prepareResult();if(!state.preparationError&&!state.source.error)status(state.source.connected?'보정한 내용을 연결한 이 PC의 엑셀에 자동 저장했습니다.':'보정한 내용이 반영되었습니다. 수정본을 저장하세요.','success');
  }catch(e){p.review=null;p.approval=null;invalidate();refresh();schedule();status(e.message,'error');}
 }
 function download(blob,name){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
@@ -112,11 +190,19 @@ $('tool-select').onchange=()=>{const t=state.model?.tools.find(t=>t.id===$('tool
 for(const k of ['name','serial','last','due'])$(k).oninput=changed;
 $('confirm').onchange=()=>{if(!$('confirm').checked&&current()){current().review=null;current().approval=null;current().edited=true;invalidate();refresh();schedule();}};
 $('calculate-due').onclick=()=>{try{const t=state.model?.tools.find(t=>t.id===$('tool-select').value);if(!t||!$('last').value)throw new Error('툴 항목과 교정일을 입력해 주세요.');const months=ToolWorkbook.monthInterval(t.interval,t.cycle),due=months?ToolWorkbook.addMonths($('last').value,months):'';if(!due)throw new Error('엑셀 주기로 날짜를 계산할 수 없습니다.');$('due').value=due;changed();}catch(e){status(e.message,'error');}};
-$('review-form').onsubmit=saveReview;$('export').onclick=async()=>{if(state.busy||state.preparing)return;if(!state.preparedResult)await prepareResult();if(!state.preparedResult)return;download(state.preparedResult.blob,state.preparedResult.name);status('수정본 저장을 요청했습니다. 확인 필요 사진은 제외했습니다.','success');};
-$('download-log').onclick=()=>{const changes=approved().map(p=>{const u=p.review,t=state.model.tools.find(t=>t.id===u.toolId);return {photo:p.file.name,processing:p.approval,sheet:t.sheet,row:t.row,name:u.name,serial:u.serial,last:u.last,due:u.due,previousLast:t.last,previousDue:t.due};}),pending=state.photos.filter(p=>!p.review).map(p=>({photo:p.file.name,reasons:p.assessment?.reasons||[p.error||'대기 중']}));download(new Blob([JSON.stringify({workbook:state.workbookName,createdAt:new Date().toISOString(),changes,pending},null,2)],{type:'application/json'}),'툴_변경내역.json');};
+$('review-form').onsubmit=saveReview;$('export').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;if(!state.preparedResult)await prepareResult();if(!state.preparedResult)return;download(state.preparedResult.blob,state.preparedResult.name);status('수정본 저장을 요청했습니다. 확인 필요 사진은 제외했습니다.','success');};
+$('download-log').onclick=()=>{const changes=approved().map(p=>{const u=p.review,t=p.saved||state.model.tools.find(t=>t.id===u.toolId)||{};return {photo:p.file.name,processing:p.approval,sheet:t.sheet,row:t.row,name:u.name,serial:u.serial,last:u.last,due:u.due,previousLast:t.last,previousDue:t.due};}),pending=state.photos.filter(p=>!p.review).map(p=>({photo:p.file.name,reasons:p.assessment?.reasons||[p.error||'대기 중']}));download(new Blob([JSON.stringify({workbook:state.workbookName,createdAt:new Date().toISOString(),changes,pending},null,2)],{type:'application/json'}),'툴_변경내역.json');};
 window.addEventListener('beforeunload',e=>{if(state.photos.length){e.preventDefault();e.returnValue='';}});
-window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult};refresh();
-const missing=['ToolWorkbook','ToolOCR','ToolAutomation','ToolRuntime'].filter(k=>!window[k]);
+$('connect-onedrive').onclick=()=>connectSource(false);$('reconnect-onedrive').onclick=()=>connectSource(true);$('retry-connected-save').onclick=retrySource;
+$('disconnect-onedrive').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;await ToolConnectedFile.disconnect();state.source.epoch++;Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,error:'',name:'',version:'',savedAt:''});refresh();render();status('자동 저장 연결을 해제했습니다. 이후 결과는 수정본으로 저장합니다.');};
+$('download-backup').onclick=async()=>{try{const backup=await ToolConnectedFile.takeBackup();if(!backup)throw new Error('보관된 백업이 없습니다.');download(new Blob([backup.bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),backup.name.replace(/\.xlsx$/i,'')+'_저장전백업.xlsx');}catch(e){status(e.message,'error');}};
+const linkKey='tool-manager-sharepoint-link';
+function setCloudLink(raw,persist=false){const value=raw.trim();if(!value){$('open-sharepoint').hidden=true;if(persist)try{localStorage.removeItem(linkKey);}catch(_){};return;}const url=new URL(value);if(url.protocol!=='https:')throw new Error('HTTPS 회사 링크를 입력하세요.');$('sharepoint-url').value=url.href;$('open-sharepoint').href=url.href;$('open-sharepoint').hidden=false;if(persist)try{localStorage.setItem(linkKey,url.href);}catch(_){};}
+$('remember-sharepoint').onclick=()=>{try{setCloudLink($('sharepoint-url').value,true);status('회사 문서 링크를 이 브라우저에 저장했습니다. 엑셀은 별도로 OneDrive 동기화 폴더에서 연결하세요.','success');}catch(e){status(e.message,'error');}};
+try{setCloudLink(localStorage.getItem(linkKey)||'');}catch(_){}
+window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult,connectSource,retrySource};refresh();
+restoreTask=restoreSource();
+const missing=['ToolWorkbook','ToolOCR','ToolAutomation','ToolRuntime','ToolConnectedFile'].filter(k=>!window[k]);
 if(missing.length)status('실행 파일이 완전하지 않습니다: '+missing.join(', ')+'. 전체 HTML을 다시 저장해 Chrome/Edge에서 여세요.','error');
 });
 })();
