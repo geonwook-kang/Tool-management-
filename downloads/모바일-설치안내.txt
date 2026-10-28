@@ -1,0 +1,23 @@
+툴 검교정 매니저 5.0 · 휴대폰 앱 설치
+
+이 ZIP은 HTTPS 서버에 게시할 앱 파일입니다. 휴대폰에서 ZIP 안 HTML을 여는 방식은 설치가 아닙니다.
+
+GitHub Pages 게시:
+1. 저장소 Settings → Pages를 엽니다.
+2. Source: Deploy from a branch
+3. Branch: tool-manager-download / Folder: /docs → Save
+4. GitHub에 표시되는 HTTPS 주소를 확인합니다.
+5. 설치 주소: https://geonwook-kang.github.io/Tool-management-/index.html
+현재 실행 환경에서 Pages/API 도메인이 네트워크403으로 막혀 실제 게시 완료는 별도 확인이 필요합니다.
+
+Android: Chrome에서 주소 열기 → 앱 설치 또는 홈 화면에 추가.
+iPhone: Safari에서 주소 열기 → 공유 → 홈 화면에 추가.
+
+회사 앱 ID·테넌트 ID와 정확한 SPA 회신 주소를 Microsoft365-setup.md에 따라 설정하세요.
+공유 엑셀 링크를 연결하고 사진 촬영 또는 앨범에서 선택하면 같은 공유 원본을 갱신합니다.
+회사 문서 접근·수정 권한이 있는 계정으로 로그인해야 합니다.
+비밀번호·클라이언트 비밀키·회사 사진은 이 배포 파일에 포함하지 않습니다.
+
+검증 범위: 모바일 화면, 실제 사진 OCR, OAuth/Graph 프로토콜, 실제 OOXML 파일 저장·백업,
+PWA 오프라인 실행과 업데이트를 자동 검사했습니다. Microsoft 서버 응답은 통제된 테스트이며
+물리 휴대폰·실제 회사 계정 로그인과 권한 승인은 사용 환경에서 최종 확인해야 합니다.

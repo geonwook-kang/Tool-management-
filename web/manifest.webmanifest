@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "툴 검교정 매니저",
+  "short_name": "툴 매니저",
+  "description": "툴 사진의 이름·시리얼·교정 날짜를 읽어 관리 엑셀에 반영합니다.",
+  "lang": "ko",
+  "start_url": "./index.html?source=homescreen",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3f6f5",
+  "theme_color": "#123e37",
+  "icons": [
+    {"src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

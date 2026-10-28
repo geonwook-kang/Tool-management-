@@ -1,4 +1,34 @@
-# 툴 검교정 매니저 — 툴 라벨·SMAX 화면 자동 반영 4.7
+# 툴 검교정 매니저 5.0 — 휴대폰·PC·Microsoft 365
+
+Android와 iPhone에서 촬영·앨범 업로드를 지원하는 설치형 웹앱(PWA)입니다. 사진 인식은 기기에서 처리하며 Microsoft 365 모드는 선택한 공유 엑셀 원본의 날짜와 사진을 갱신합니다. 기존 PC OneDrive 동기화 파일 연결과 별도의 기기 사본 모드도 제공합니다.
+
+## 앱 게시와 설치
+
+배포할 앱은 `docs/`에 있습니다. 저장소 **Settings → Pages → Deploy from a branch → tool-manager-download → /docs → Save**로 게시하거나, 모바일 배포 ZIP을 신뢰할 수 있는 HTTPS 서버에 올립니다. 게시 후 주소는 `https://geonwook-kang.github.io/Tool-management-/index.html`입니다. 현재 실행 환경에서는 GitHub API·Pages 도메인이 프록시 403으로 차단되어 게시 설정과 실제 공개 주소의 응답을 확인하지 못했습니다. 위 주소를 이미 동작하는 설치 링크라고 간주하면 안 됩니다.
+
+Android는 Chrome의 앱 설치/홈 화면 추가, iPhone은 Safari의 공유 → 홈 화면에 추가를 사용합니다. 첫 앱 저장이 끝나면 인식 엔진을 오프라인에서도 시작할 수 있습니다. 회사 공유 파일 저장에는 인터넷이 필요합니다.
+
+- [모바일 앱 게시용 ZIP](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Mobile-PWA-5.0.zip)
+- [PC용 HTML 프로그램 ZIP](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Desktop-5.0.zip)
+- [회사 Microsoft 365 연결 안내](docs/Microsoft365-setup.md)
+
+## 같은 회사 공유 엑셀에 저장
+
+앱 설정에 회사의 공개 Client ID·Tenant ID를 입력하고, 앱에 표시된 정확한 회신 주소를 회사 Entra 앱의 SPA 주소로 등록합니다. `Files.ReadWrite.All`, `openid`, `profile` 위임 권한과 회사의 사용 정책을 따라야 합니다. 비밀번호나 클라이언트 비밀키는 앱에 넣지 않습니다. Microsoft 공식 로그인 화면에서 회사 계정으로 로그인한 후 엑셀의 실제 공유 링크를 한 번 연결합니다. ID·회사 링크·사진을 공개 앱 파일에 미리 넣지 않았습니다.
+
+업로드한 사진은 기존과 같이 교정일자→Cal Last, 차기교정예정일자→Cal Next, Label Photo/SMAX Tool Photo에 반영합니다. Graph의 ETag·If-Match로 다른 사용자의 변경을 확인하고, 저장 전 백업과 저장 후 파일 SHA 검증을 수행합니다. 결과가 불확실하면 자동 재전송하지 않습니다. 변경 없는 원본은 메모리에서 재사용해 큰 엑셀의 반복 다운로드를 줄입니다. 토큰은 메모리에만 보관하며 다운로드 주소·인증 응답·회사 파일을 서비스 워커 캐시에 넣지 않습니다.
+
+로그인 이동 직전의 사진은 사용자가 로그인을 누른 경우에만 기기에 10분간 임시 보관합니다. 로그인 후 같은 공유 파일인지 확인하고 최신 원본으로 인식 근거를 다시 분석한 뒤 한 번만 복원합니다. 이름·시리얼 매칭 정책과 인식 신뢰도 기준은 기존 4.7을 유지합니다.
+
+`이 기기에 보관한 엑셀 사본` 모드는 원본 클라우드 파일을 변경하지 않습니다. 앱 데이터 삭제에 대비해 사본을 공유/다운로드할 수 있습니다. PC의 동기화 파일 모드에서는 실제 서버 반영 완료를 OneDrive에서 확인합니다.
+
+## 모바일 검증 범위
+
+실제 사진과 인식 엔진·OOXML을 사용해 iPhone/Android 화면, 촬영·앨범 입력, 원본 저장·백업, 파일 충돌, PKCE 로그인 이동과 사진 복원을 검사했습니다. Microsoft OAuth·Graph 서버 응답은 통제된 테스트였으며, 실제 회사 로그인과 물리 휴대폰·Safari 엔진 검증은 완료하지 않았습니다. PWA 설치·오프라인·개인 데이터 캐시 제외·다중 창 업데이트·빈 프로그램 내보내기를 Chromium에서 확인했습니다. 회사 엑셀·사진·인증 토큰·실제 Client/Tenant ID는 Git과 배포물에 포함하지 않습니다.
+
+빌드: `python web/package.py`, `python web/build_pwa.py --output-dir /workspace/outputs/mobile-app`. 모바일 테스트는 `tests/mobile_app_test.py`, `m365_auth_test.py`, `graph_file_test.py`, `mobile_file_test.py`, `resume_test.py`, `pwa_test.py`에 있습니다.
+
+## 기존 PC 인식 기능과 기록
 
 ## 4.7 전체 등록 목록 매칭과 빠른 라벨 처리
 
