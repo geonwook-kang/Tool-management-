@@ -541,7 +541,8 @@
     });
     const width = image.width, height = image.height;
     if (!width || !height || width * height > 40000000) { if (image.close) image.close(); throw new Error('사진은 4천만 픽셀 이하로 올려 주세요.'); }
-    const scale = Math.min(2400 / Math.max(width, height), Math.max(1, Math.min(2, 1400 / width)));
+    const overviewLimit = width / height >= 1.6 ? 2400 : 1400;
+    const scale = Math.min(overviewLimit / Math.max(width, height), Math.max(1, Math.min(2, 1400 / width)));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
     const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.filter = 'grayscale(1) contrast(1.15)'; context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -683,6 +684,8 @@
       const resultContext = result.getContext('2d'); resultContext.fillStyle = '#fff'; resultContext.fillRect(0, 0, result.width, result.height);
       let y = 20;
       for (const cell of cells) { resultContext.drawImage(straight, 0, cell.top, width, cell.bottom - cell.top, 30, y, width, cell.bottom - cell.top); y += cell.bottom - cell.top + 45; }
+      const curveY = reference.ys.filter((value) => value != null);
+      result.curveDepth = Math.max(...curveY) - Math.min(...curveY);
       return result;
     } catch (_) { return null; }
   }
@@ -869,7 +872,7 @@
     cancellation.promise.catch(() => {});
     activeCancellation = cancellation;
     const began = Date.now(), passes = [], recoveryWarnings = [];
-    let stage = 'image-load';
+    let stage = 'image-load', primaryPass = null;
     const heartbeat = setInterval(() => {
       if (typeof progressListener === 'function') {
         try { progressListener({ status: currentPhase + ' · ' + Math.floor((Date.now() - began) / 1000) + '초', progress: currentProgress }); } catch (_) {}
@@ -884,7 +887,9 @@
     const strongIdentity = (result) => {
       const serials = unique(result.identityEvidence.serialMatches.filter((match) => match.confidence != null && match.confidence >= 70).map((match) => match.toolId));
       const names = unique(result.identityEvidence.nameMatches.filter((match) => match.confidence != null && match.confidence >= 70).map((match) => match.toolId));
-      return serials.length === 1 || (!serials.length && names.length === 1);
+      const numeric = global.ToolAutomation && typeof global.ToolAutomation.numericSerialMatches === 'function' ? global.ToolAutomation.numericSerialMatches(tools, result.identityEvidence) : [];
+      const numericTargets = unique(numeric.map((match) => match.toolId));
+      return serials.length === 1 || (!serials.length && numericTargets.length === 1) || (!serials.length && !numericTargets.length && names.length === 1);
     };
     try {
       emit('사진을 준비하는 중', 0.01);
@@ -893,13 +898,89 @@
       const worker = await getWorker();
       stage = 'recognition';
       await deadline(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1', thresholding_method: '0' }), 5000, '문자 인식 설정을 적용하지 못했습니다. 다시 시도해 주세요.');
-      record(await deadline(worker.recognize(canvas, {}, { text: true, blocks: true }), 60000, '사진을 60초 안에 읽지 못했습니다. 라벨을 크게 촬영한 사진으로 다시 시도해 주세요.'), 'original');
+      const fast = global.ToolFastOCR;
+      const native = canvas.nativeCanvas || canvas;
+      // Large camera pictures spend most OCR time on the room and metal.
+      // Detect paper and ruled cells in pixels before reading that background.
+      // Small pictures and wide SMAX screens retain the normal document route.
+      if (fast && Math.max(native.width, native.height) >= 1800) {
+        const regions = fast.regions(canvas), tags = regions.filter((region) => region.kind === 'tag'), table = regions.find((region) => region.kind === 'dates');
+        if (tags.length && table) {
+          const quickBegan = Date.now(), quickBudget = 25000;
+          const readQuick = async (region, binary, psm, source, preparedInput) => {
+            if (Date.now() - quickBegan >= quickBudget) return null;
+            const input = preparedInput || fast.prepare(canvas, region, { binary });
+            emit('라벨의 이름·번호·날짜를 확인하는 중', 0.2 + Math.min(0.55, passes.length * 0.07));
+            await deadline(worker.setParameters({ tessedit_pageseg_mode: psm, thresholding_method: '0' }), 5000, '라벨 인식 설정에 실패했습니다.');
+            record(await deadline(worker.recognize(input, {}, { text: true, blocks: true }), Math.min(10000, Math.max(1, quickBudget - (Date.now() - quickBegan))), '라벨 추가 확인 시간이 초과되었습니다.'), source);
+            return passes[passes.length - 1];
+          };
+          for (let index = 0; index < tags.length; index++) {
+            if (!await readQuick(tags[index], true, '6', 'identity-probe-fast-binary-' + index)) {
+              // A skipped identity proposal could hide a conflicting owner or
+              // serial. Later date/overview reads must not erase that gap.
+              passes.push({ text: '', confidence: null, source: 'identity-probe-incomplete', words: [] });
+              recoveryWarnings.push('라벨 후보를 모두 확인하지 못해 자동 반영을 보류했습니다.');
+              break;
+            }
+          }
+          if (!strongIdentity(current())) {
+            for (let index = 0; index < tags.length; index++) {
+              await readQuick(tags[index], false, '11', 'identity-probe-fast-gray-' + index);
+              if (strongIdentity(current())) break;
+            }
+          }
+          const dateReads = [];
+          const clearDateRead = (pass) => {
+            const values = datePass(pass).dates;
+            return values.length >= 2 && values.every((value) => valueConfidence(pass, value, 'date') >= 70);
+          };
+          const readDate = async (binary, psm, source, input) => {
+            const pass = await readQuick(table, binary, psm, source, input);
+            if (pass) dateReads.push(pass);
+          };
+          const rowHeight = median(table.cells.map((box) => box.y1 - box.y0));
+          const rawColumn = typeof fast.prepareWholeColumn === 'function' ? fast.prepareWholeColumn(canvas, table) : null;
+          const straight = rawColumn ? flattenDateCells(rawColumn, rowHeight * 0.4, 2) : null;
+          const curveFirst = straight && straight.curveDepth > rowHeight * 0.25;
+          const readCurve = async () => {
+            const input = dateReadingFrame(binaryDateCells(straight), 80);
+            for (const psm of ['6', '11']) await readDate(false, psm, 'date-probe-fast-curve-' + psm, input);
+          };
+          // Measure the actual rule shape before choosing a route. Curved
+          // labels can otherwise waste two slow reads on distorted cells.
+          if (curveFirst) await readCurve();
+          if (dateReads.filter(clearDateRead).length < 2) {
+            for (const binary of [false, true]) await readDate(binary, '11', 'date-probe-fast-' + (binary ? 'binary' : 'gray'));
+          }
+          // Very large native characters can segment poorly. Re-read their
+          // real pixels at half size, without changing or completing text.
+          if (dateReads.filter(clearDateRead).length < 2 && rowHeight > 100) {
+            const raw = fast.prepare(canvas, table, { binary: false });
+            const compact = boundedCrop(raw, { x0: 0, y0: 0, x1: raw.width, y1: raw.height }, false, 0.5);
+            for (const psm of ['6', '11']) await readDate(false, psm, 'date-probe-fast-compact-' + psm, compact);
+          }
+          if (dateReads.filter(clearDateRead).length < 2 && straight && !curveFirst) await readCurve();
+          // A proposal is not date evidence. Promote only complete, confident
+          // independent readings; never fill a missing day from Excel/a sample.
+          const complete = dateReads.filter(clearDateRead);
+          if (complete.length >= 2) complete.forEach((pass) => { pass.source = pass.source.replace('date-probe-fast-', 'date-crop-fast-'); });
+          const quick = current(), dates = quick.dateEvidence;
+          if (strongIdentity(quick) && !dates.ambiguous && dates.method && dates.last && dates.due && dates.confidence >= 70) {
+            quick.fastPath = true; quick.engineFailure = false; quick.code = ''; quick.errorCode = '';
+            emit('이름·번호·교정 날짜 확인 완료', 1); return quick;
+          }
+        }
+      }
+
+      record(await deadline(worker.recognize(canvas, {}, { text: true, blocks: true }), 25000, '사진 전체를 25초 안에 읽지 못했습니다. 인식 진단 파일로 확인할 수 있습니다.'), 'original');
+      primaryPass = passes[passes.length - 1];
       let preliminary = current();
       if (preliminary.documentType === 'smax' || preliminary.documentType === 'unknown-smax') {
         const beganFields = Date.now(), fieldBudget = 60000; let fieldCalls = 0;
         const markIncomplete = () => { if (!passes.some((pass) => pass.source === 'smax-field-incomplete')) passes.push({ text: '', confidence: null, source: 'smax-field-incomplete', words: [] }); };
         try {
-          const proposed = global.ToolSMAX && typeof global.ToolSMAX.regionsForPass === 'function' ? global.ToolSMAX.regionsForPass(passes[0], canvas.width, canvas.height) : [];
+          const proposed = global.ToolSMAX && typeof global.ToolSMAX.regionsForPass === 'function' ? global.ToolSMAX.regionsForPass(primaryPass, canvas.width, canvas.height) : [];
           const regions = (Array.isArray(proposed) ? proposed : []).filter((region) => ['serial', 'owner', 'due'].includes(region.role) && region.labelVerified === true && wordBox(region.bbox) && wordBox(region.labelBBox) && typeof region.labelText === 'string' && region.labelText.trim())
             .sort((a, b) => ['serial', 'owner', 'due'].indexOf(a.role) - ['serial', 'owner', 'due'].indexOf(b.role));
           const serialAlreadyRead = (preliminary.smaxEvidence && preliminary.smaxEvidence.serialReadings || []).some((reading) => reading.labelVerified === true && score(reading.confidence) >= 70 && tools.some((tool) => cleanSerial(tool.serial) === cleanSerial(reading.value)));
@@ -927,18 +1008,18 @@
         result.warnings.push(...recoveryWarnings);
         emit('SMAX 필드 인식 완료', 1); return result;
       }
-      if (!strongIdentity(preliminary) || preliminary.dateEvidence.method !== 'labelled' || !(preliminary.dateEvidence.confidence >= 70)) {
+      if (!strongIdentity(preliminary) || !['labelled', 'repeated-dates'].includes(preliminary.dateEvidence.method) || !(preliminary.dateEvidence.confidence >= 70)) {
         progressStart = 0.8; progressSpan = 0.1;
         emit('교정 라벨을 한 번 더 읽는 중', progressStart);
-        if (spatialDates(passes[0]).length >= 2 || preliminary.dateEvidence.method === 'labelled' && preliminary.dateEvidence.confidence >= 70) {
+        if (spatialDates(primaryPass).length >= 2 || preliminary.dateEvidence.method === 'labelled' && preliminary.dateEvidence.confidence >= 70) {
           await deadline(worker.setParameters({ tessedit_pageseg_mode: '6' }), 5000, '문자 인식 설정에 실패했습니다.');
-          record(await deadline(worker.recognize(dateCrop(canvas, passes[0]), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'date-crop');
+          record(await deadline(worker.recognize(dateCrop(canvas, primaryPass), {}, { text: true, blocks: true }), 45000, '날짜 추가 인식 시간이 초과되었습니다. 날짜를 확인해 주세요.'), 'date-crop');
         } else {
           // Discovery scans locate small date lines; they are not proof of a
           // date. Only the subsequent clean, independently segmented re-reads
           // can supply automatic dates, so an exploratory 06/08 error cannot
           // silently become an approved due date.
-          const probe = dateProbe(canvas, passes[0]);
+          const probe = dateProbe(canvas, primaryPass);
           await deadline(worker.setParameters({ tessedit_pageseg_mode: '11' }), 5000, '문자 인식 설정에 실패했습니다.');
           record(await deadline(worker.recognize(probe, {}, { text: true, blocks: true }), 45000, '작은 교정 라벨 탐색 시간이 초과되었습니다.'), 'date-probe');
           let discovered = passes[passes.length - 1];
@@ -993,7 +1074,7 @@
       if (!strongIdentity(preliminary)) {
         progressStart = 0.91; progressSpan = 0.08;
         emit('이름과 시리얼 표지를 한 번 더 읽는 중', progressStart);
-        const identity = identityCrop(canvas, passes[0], tools);
+        const identity = identityCrop(canvas, primaryPass, tools);
         await deadline(worker.setParameters({ tessedit_pageseg_mode: identity.psm }), 5000, '문자 인식 설정에 실패했습니다.');
         record(await deadline(worker.recognize(identity.canvas, {}, { text: true, blocks: true }), 45000, '이름·시리얼 추가 인식 시간이 초과되었습니다.'), 'identity-crop');
         preliminary = current();

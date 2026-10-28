@@ -141,10 +141,22 @@
     if (!result || result.failed || result.documentType !== 'smax' || !data) { reject('SMAX 필수 필드 라벨과 시리얼을 확인해야 합니다.'); return output; }
     if (data.incomplete || result.identityRecoveryIncomplete) reject('SMAX 필드 추가 인식을 끝내지 못해 자동 반영을 보류합니다.');
     const serials = unique((data.serialReadings || []).filter(r => r.labelVerified && high(r.confidence)).map(r => serialKey(r.value)).filter(Boolean));
-    if (serials.length !== 1) { reject(serials.length ? 'SMAX Serial / Asset Number가 서로 다르게 읽혔습니다.' : 'SMAX Serial / Asset Number를 신뢰도 있게 읽지 못했습니다.'); return output; }
-    const matches = tools.filter(tool => serialKey(tool.serial) === serials[0]);
-    if (matches.length !== 1) { reject('SMAX 시리얼과 정확히 일치하는 툴이 엑셀에서 하나로 정해지지 않습니다.'); return output; }
-    const tool = matches[0]; Object.assign(output, { toolId: tool.id, name: tool.name, serial: tool.serial, last: tool.last || '', due: tool.due || '' });
+    if (!serials.length) { reject('SMAX Serial / Asset Number를 신뢰도 있게 읽지 못했습니다.'); return output; }
+    const numericProof = { observedSerialEvidence: (data.serialReadings || []).filter(reading => reading.labelVerified && high(reading.confidence)).map(reading => ({
+      serial: reading.value, kind: 'labelled', confidence: reading.confidence,
+      passSources: [reading.source], sourceReadings: [{ source: reading.source, confidence: reading.confidence }]
+    })) };
+    const numericMatches = global.ToolAutomation && typeof global.ToolAutomation.numericSerialMatches === 'function' ? global.ToolAutomation.numericSerialMatches(tools, numericProof) : [];
+    const resolved = serials.map(serial => {
+      const exact = tools.filter(tool => serialKey(tool.serial) === serial);
+      return exact.length ? exact : tools.filter(tool => numericMatches.some(proof => proof.toolId === tool.id && proof.observedSerial === serial));
+    });
+    if (resolved.some(matches => matches.length !== 1) || unique(resolved.map(matches => matches[0]?.id)).length !== 1) {
+      reject(serials.length > 1 ? 'SMAX Serial / Asset Number가 서로 다르게 읽혔습니다.' : 'SMAX 시리얼과 정확히 일치하는 툴이 엑셀에서 하나로 정해지지 않습니다.'); return output;
+    }
+    const tool = resolved[0][0]; Object.assign(output, { toolId: tool.id, name: tool.name, serial: tool.serial, last: tool.last || '', due: tool.due || '' });
+    const formatted = serials.find(serial => serial !== serialKey(tool.serial));
+    if (formatted) { output.matchMethod = 'numeric-cell-serial'; output.observedSerial = formatted; }
     if (!tool.name || /폐기|disposed|retired/i.test(String(tool.due || ''))) reject('폐기되었거나 담당자가 없는 툴은 자동 변경하지 않습니다.');
     if (tool.hasSmaxPhotoColumn === false) reject('이 시트에 SMAX Tool Photo 열이 없습니다.');
     if (Number(tool.smaxPhotoCount) > 1) reject('SMAX 사진 위치에 여러 사진이 있어 교체 대상을 확정할 수 없습니다.');

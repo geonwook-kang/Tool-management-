@@ -1,4 +1,26 @@
-# 툴 검교정 매니저 — 툴 라벨·SMAX 화면 자동 반영 4.6
+# 툴 검교정 매니저 — 툴 라벨·SMAX 화면 자동 반영 4.7
+
+## 4.7 전체 등록 목록 매칭과 빠른 라벨 처리
+
+사진에서 읽은 이름·시리얼을 현재 엑셀의 전체 툴 목록과 대조합니다. 담당자별 고정 번호나 예시 사진의 날짜를 프로그램에 넣지 않습니다. 이름이 흐려도 고유 시리얼이 명확하면 그 번호의 등록 담당자와 행을 연결합니다. 동일 담당자에게 같은 주기의 툴이 여러 개 있으면 시리얼로 구분합니다.
+
+큰 사진은 이름·번호 표지와 교정표 숫자 칸을 먼저 찾아 작은 원본 영역을 읽습니다. 사진 하단의 이름 표지도 탐색합니다. 곡면 표는 측정한 표 선을 따라 펴고, 지나치게 큰 날짜 글자는 축소해 다시 확인합니다. 필요한 식별 근거와 두 날짜가 확인되면 반복적인 전체 사진 읽기를 끝냅니다. 빠른 처리에서 확정하지 못하면 축소한 전체 사진과 기존 재인식 경로를 사용합니다. 인식 엔진은 다음 사진에서도 재사용합니다. 날짜 신뢰도·독립된 확인·충돌 검사 기준은 유지합니다.
+
+엑셀의 **실제 저장 형식이 숫자 셀임이 확인된 시리얼**에 한해 앞자리 0의 저장 형식 차이를 대조합니다. 예를 들어 사진의 `001234567`과 숫자 셀의 `1234567`은 나머지 숫자가 모두 같고, 폐기 항목과 텍스트 번호까지 포함한 전체 목록에서 후보가 한 개일 때만 연결할 수 있습니다. 수식·텍스트 셀에는 이 규칙을 적용하지 않습니다. 사진의 전체 번호가 명확히 읽혀야 하며, 숫자 오독·다른 끝자리·중복 후보는 계속 보류합니다. 사진에서 읽은 번호는 인식 근거에 남기고 엑셀의 등록 번호는 유지합니다.
+
+담당자 칸이 `홍길동 (공용)`처럼 괄호 설명을 포함할 때 사진의 `홍길동`과 다르다는 이유만으로 같은 툴을 제외하지 않습니다. 이 경우에도 독립적으로 명확하게 읽은 전체 시리얼이 해당 행을 식별해야 합니다. 괄호 설명을 지워 이름만으로 다른 행을 자동 선택하지 않습니다.
+
+등록된 30개 툴·20명 담당자의 행 선택 정책을 검사했습니다. 활성 툴 29개 중 28개는 올바른 행으로 승인되고, 기존 사진 칸이 중복된 1개는 확인이 필요합니다. 이 검사는 통제된 인식 문자열로 매칭 정책을 확인한 것이며, 모든 담당자의 실제 촬영 사진 인식률을 측정한 결과는 아닙니다. 별도로 서로 다른 담당자의 실제 원본 사진 3장으로 OCR부터 날짜·사진 자동 저장까지 검사했습니다. 원본 사진·회사 엑셀·진단 보고서는 Git과 배포 파일에 포함하지 않습니다.
+
+같은 테스트 PC·브라우저에서 같은 원본 3장을 같은 순서로 처리한 결과는 다음과 같습니다. 첫 사진의 엔진 준비와 이후 사진의 엔진 재사용을 포함한 앱 자동 저장 완료 시간입니다.
+
+| 원본 사진 | 기존 4.6 | 개선 경로 | 자동 저장 |
+|---|---:|---:|---|
+| 사진 1 | 23.7초 | 5.1초 | 완료 |
+| 사진 2 | 40.8초·미반영 | 6.6초 | 완료 |
+| 사진 3 | 22.9초 | 4.1초 | 완료 |
+
+최종 배포 파일의 총 처리 시간은 87.4초에서 15.7초로 줄었습니다. 약 5.6배의 차이는 이 사진·테스트 환경의 측정값이며 PC·브라우저·촬영 조건에 따라 달라집니다. 회사 OneDrive 서버의 동기화 완료 시간은 포함하지 않습니다.
 
 ## 4.6 금속 배경과 곡면 교정표 재인식
 
@@ -81,11 +103,11 @@ Teams 파일 탭의 **SharePoint에서 열기**로 문서 라이브러리를 열
 
 ## 프로그램 다운로드
 
-[실행용 ZIP 다운로드 — 토크렌치 인식 개선 4.6](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Torque-4.6.zip)
+[실행용 ZIP 다운로드 — 전체 목록 매칭·속도 개선 4.7](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Fast-4.7.zip)
 
 채팅의 파일 링크 대신 위 GitHub 파일을 받으세요. 압축을 풀고 `Tool-Manager.html`을 Chrome 또는 Edge에서 열면 됩니다. Python 설치나 API 키가 필요하지 않습니다. 인식 엔진과 한글·영문 데이터가 포함되어 오프라인으로 실행됩니다.
 
-직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Torque-4.6.zip)에서 **Download raw file**을 누르세요.
+직접 다운로드가 열리지 않으면 [GitHub 파일 페이지](https://github.com/geonwook-kang/Tool-management-/blob/tool-manager-download/downloads/Tool-Manager-Fast-4.7.zip)에서 **Download raw file**을 누르세요.
 
 
 회사 엑셀과 사진을 선택하면 이름 또는 시리얼 번호로 툴 행을 찾고, 교정일·다음 교정일과 라벨 사진을 자동 반영한 수정본을 만듭니다. 불확실한 사진만 수동 보정합니다. 연결 모드는 선택한 파일을 자동 갱신하며, 미연결 모드는 원본을 보존하고 수정본을 만듭니다.
@@ -98,7 +120,7 @@ Teams 파일 탭의 **SharePoint에서 열기**로 문서 라이브러리를 열
 
 연결 모드에서는 처음 한 번 동기화된 엑셀을 선택하고 이후에는 사진만 선택합니다. 자동 식별된 항목은 같은 파일에 저장합니다. 연결 없이 직접 파일 선택을 이용하면 예전과 같이 수정본을 다운로드합니다. 확인 필요 사진은 제외되며 별도 보정할 수 있습니다.
 
-인식 중지 버튼으로 엔진을 종료하고 즉시 다시 시작할 수 있습니다. 엔진 초기화45초, 사진 변환15초, OCR단계60초/45초 제한 및 진행 상태를 표시합니다. 엑셀 생성 실패 시 엑셀 다시 생성·저장 버튼으로 인식을 반복하지 않고 재시도합니다.
+인식 중지 버튼으로 엔진을 종료하고 즉시 다시 시작할 수 있습니다. 엔진 초기화 45초, 사진 변환 15초, 작은 라벨 우선 확인 25초의 제한과 진행 상태를 표시합니다. 전체 사진 첫 판독은 25초, 추가 판독은 단계별 20초 또는 45초로 제한합니다. 엑셀 생성 실패 시 엑셀 다시 생성·저장 버튼으로 인식을 반복하지 않고 재시도합니다.
 
 고유 시리얼 또는 툴이 하나인 담당자 이름으로 연결합니다. 의미가 명확한 교정 날짜 라벨이나 반복 OCR에서 일치한 날짜를 이용합니다. 명확한 교정일만 있고 차기일 표기가 없으면 유효한 엑셀 주기로 계산합니다. 중복·충돌·낮은 신뢰도·폐기·과거 날짜 등은 보류합니다. 손글씨의 정확도를 보장하지 않으며 실제 사용 사진을 확인해야 합니다.
 
@@ -135,6 +157,7 @@ python tests/smax_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/smax_workbook_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/smax_app_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 python tests/smax_ocr_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
+python tests/all_owner_policy_test.py --program /workspace/outputs/Tool-Manager-Fixed.html
 ```
 
 
@@ -151,6 +174,18 @@ python tests/actual_photo_ocr_test.py \
 ```
 
 이 검사는 실제 Tesseract와 앱 자동 판단, OPFS 연결 파일의 날짜·사진·백업, 다른 셀·사진 보존을 확인합니다. `--diagnose-only`는 실패 결과를 보고서로 남기며 성공 주장에 사용하지 않습니다. `--variant mild-blur` 또는 `--variant reduced-resolution`은 원본과 구분한 인위적 열화 실험입니다. 실제 원본과 진단 보고서는 실행 환경의 임시 경로에만 두며 Git과 배포 ZIP에 넣지 않습니다. 실제 OneDrive 서버 동기화는 이 검사 범위에 포함하지 않습니다.
+
+여러 담당자의 실제 사진과 처리 시간은 별도 매니페스트로 검사합니다.
+
+```bash
+python tests/multi_owner_ocr_test.py \
+  --program /workspace/outputs/Tool-Manager-Fixed.html \
+  --workbook /absolute/path/company.xlsx \
+  --manifest /private/path/recognition-cases.json \
+  --diagnostics /tmp/tool-multi-owner-ocr.json
+```
+
+매니페스트는 `photo`, `name`, `serial`, `last`, `due`를 담은 JSON 배열입니다. 필요하면 사진에 적힌 전체 번호를 `observed_serial`로 구분합니다. 이 기대값은 Python의 결과 비교에만 쓰고 인식기에 넘기지 않습니다. 동일 브라우저에서 첫 사진의 엔진 준비 시간과 이후 사진의 처리 시간, 실제 워커 호출, OPFS 자동 저장·백업·다른 셀과 사진 보존을 기록합니다. `--baseline`으로 같은 사진·순서의 이전 보고서를 지정하면 같은 환경에서 속도를 비교할 수 있습니다. PC·브라우저·사진 크기에 따라 실제 시간은 달라집니다.
 
 이미 내려받은 자산은 `python scripts/prepare_assets.py --check`로 오프라인 검증합니다. 고정 npm 버전과 SHA512 아카이브 검증을 유지합니다. 빌드/자산 다운로드 외에 브라우저 실행 중 외부 통신은 없습니다.
 

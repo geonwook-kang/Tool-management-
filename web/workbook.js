@@ -187,14 +187,20 @@
         const get = (key) => cellValue(cells.get(headers[key]), strings).trim();
         const serial = get('Serial');
         if (!serial) continue;
+        const serialCell = cells.get(headers['Serial']), serialType = serialCell && serialCell.getAttribute('t');
+        // A numeric Excel cell can discard leading zeroes. Retain its actual
+        // storage provenance; text cells and formulas must keep exact serials.
+        const numericSerial = !!serialCell && (!serialType || serialType === 'n') && !child(serialCell, 'f') && /^[0-9]{3,15}$/.test(serial);
         const asset = get('Asset #'), name = normalizeName(asset.split('_').pop());
+        const annotatedOwner = /^([가-힣]{2,4})\s*\([^()]+\)$/.exec(name.normalize('NFKC'));
+        const ownerBaseName = annotatedOwner ? annotatedOwner[1] : '';
         const picturesAt = (col) => !col ? [] : drawingRecords.flatMap((d) => Array.from(d.doc.documentElement.children).filter((a) => {
           const loc = anchorLocation(a);
           return loc && loc.row === rowNum && loc.col === col && elements(a, 'pic').length;
         }));
         const interval = get('Cal Interval');
         tools.push(Object.freeze({
-          id: path + ':' + rowNum, sheet: record.name, row: rowNum, name, serial, asset,
+          id: path + ':' + rowNum, sheet: record.name, row: rowNum, name, ownerBaseName, serial, numericSerial, asset,
           last: excelDate(get('Cal Last'), date1904), due: excelDate(get('Cal Next'), date1904),
           interval: interval === '' ? '' : Number.isFinite(Number(interval)) ? Number(interval) : interval,
           cycle: get('Cal Cycle'), months: monthInterval(interval, get('Cal Cycle')),

@@ -24,6 +24,35 @@
     if (['YEAR', 'YEARS', '년'].includes(cycle)) return interval * 12;
     return null;
   }
+  function numericSerialMatches(tools, identity) {
+    // This is storage-format equivalence, never general serial normalization.
+    // Only a proven plain numeric workbook cell may have lost leading zeroes.
+    const values = [], records = Array.isArray(tools) ? tools : [];
+    const usable = (source) => typeof source === 'string' && source.trim() && !/^(?:text|unknown|null|undefined)$/i.test(source)
+      && !/^(?:date|label)[-_]/i.test(source) && !/(?:^|[-_])incomplete(?:$|[-_])/i.test(source);
+    for (const proof of identity && Array.isArray(identity.observedSerialEvidence) ? identity.observedSerialEvidence : []) {
+      if (!proof || proof.learned || !high(proof.confidence) || !['standalone', 'labelled', 'workbook'].includes(proof.kind)) continue;
+      const observed = normalizeSerial(proof.serial);
+      if (!/^0+[1-9][0-9]{2,14}$/.test(observed)) continue;
+      const sources = new Set((Array.isArray(proof.passSources) ? proof.passSources : []).filter(usable));
+      if (!(Array.isArray(proof.sourceReadings) ? proof.sourceReadings : []).some((reading) => reading && sources.has(reading.source) && high(reading.confidence))) continue;
+      const digits = observed.replace(/^0+/, '');
+      // Include every registered row, even retired and explicit zero-prefixed
+      // text serials. An equivalent stored number must identify one row only.
+      const matches = records.filter((tool) => {
+        const canonical = normalizeSerial(tool.serial);
+        return /^[0-9]+$/.test(canonical) && canonical.replace(/^0+(?=\d)/, '') === digits;
+      });
+      if (matches.length !== 1) continue;
+      const tool = matches[0], canonical = String(tool.serial || '');
+      if (tool.numericSerial !== true || !/^[1-9][0-9]{2,14}$/.test(canonical) || observed === canonical) continue;
+      const confidence = Math.min(Number(proof.confidence), Math.max(...proof.sourceReadings.filter((reading) => reading && sources.has(reading.source) && high(reading.confidence)).map((reading) => Number(reading.confidence))));
+      let value = values.find((item) => item.toolId === tool.id && item.observedSerial === observed);
+      if (!value) { value = { toolId: tool.id, serial: tool.serial, observedSerial: observed, confidence }; values.push(value); }
+      else value.confidence = Math.max(value.confidence, confidence);
+    }
+    return values;
+  }
   function assess(model, result) {
     if (result && /smax/i.test(result.documentType || '')) {
       if (global.ToolSMAX && typeof global.ToolSMAX.assess === 'function') return global.ToolSMAX.assess(model, result);
@@ -41,6 +70,7 @@
     const serialMatches = tools.filter((tool) => (identity.serialMatches || []).some((match) => match.toolId === tool.id && normalizeSerial(match.serial) === normalizeSerial(tool.serial)));
     const nameMatches = tools.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && normalizeName(match.name) === normalizeName(tool.name)));
     const strongNameMatches = nameMatches.filter((tool) => (identity.nameMatches || []).some((match) => match.toolId === tool.id && high(match.confidence)));
+    const numericMatches = numericSerialMatches(tools, identity), numericTools = tools.filter((tool) => numericMatches.some((match) => match.toolId === tool.id));
     // Unlabelled Korean words on a calibration sticker can be company names
     // or headings. They must not become contradictory owner names merely
     // because they have the same length as a person's name.
@@ -149,6 +179,7 @@
     const ownerFragmentMatch = ownerFragments.target && clearDatePair
       && addMonths(dates.last, monthInterval(ownerFragments.target)) === dates.due ? ownerFragments : null;
     const resolveSerial = (serial, target) => {
+      if (numericMatches.some((proof) => proof.toolId === target.id && proof.observedSerial === normalizeSerial(serial))) return true;
       if ((identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
         && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial))) return true;
       // Only this exact, separately verified four-digit observation may be
@@ -158,7 +189,13 @@
       const partial = resolvePartialSerial(serial) || resolvePartialSerial(serial, { exactConfirmation: true });
       return !!partial && partial.tool.id === target.id;
     };
-    const resolveName = (name, target) => (identity.resolvedNames || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
+    const annotationOwner = (name, target) => {
+      const annotation = /^([가-힣]{2,4})\s*\([^()]+\)$/.exec(String(target.name || '').normalize('NFKC'));
+      return !!annotation && annotation[1] === target.ownerBaseName && normalizeName(name) === normalizeName(target.ownerBaseName)
+        && ((identity.serialMatches || []).some((proof) => !proof.learned && proof.toolId === target.id && high(proof.confidence)
+          && normalizeSerial(proof.serial) === normalizeSerial(target.serial)) || numericMatches.some((proof) => proof.toolId === target.id));
+    };
+    const resolveName = (name, target) => annotationOwner(name, target) || (identity.resolvedNames || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
       && normalizeName(proof.alias) === normalizeName(name) && normalizeName(proof.name) === normalizeName(target.name));
     let tool = null;
     if (serialMatches.length === 1) {
@@ -167,6 +204,11 @@
       output.matchMethod = proof?.learned ? 'remembered-serial' : 'serial';
       if (!high(proof && proof.confidence)) reject('시리얼 번호의 인식 신뢰도가 낮아 확인이 필요합니다.');
     } else if (serialMatches.length > 1) reject('인식한 시리얼 번호가 여러 툴과 일치합니다.');
+    else if (numericTools.length === 1) {
+      tool = numericTools[0]; output.matchMethod = 'numeric-cell-serial';
+      output.observedSerial = numericMatches.find((proof) => proof.toolId === tool.id).observedSerial;
+    }
+    else if (numericTools.length > 1) reject('사진의 번호가 서로 다른 숫자 형식의 엑셀 시리얼을 가리킵니다.');
     else if (partialTools.length === 1) { tool = partialTools[0]; output.matchMethod = 'partial-serial'; }
     else if (partialTools.length > 1) reject('부분 시리얼 번호가 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
     else if (ownerFragmentMatch) { tool = ownerFragmentMatch.target; output.matchMethod = 'owner-partial-serial'; }
@@ -194,7 +236,7 @@
       if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name) && !resolveName(name, tool))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
       if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial) && !resolveSerial(serial, tool))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
-      if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id)) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
+      if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id || annotationOwner(other.name, tool))) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
       if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');
       if (/폐기|disposed|retired/i.test(String(tool.due || ''))) reject('폐기 처리된 툴은 자동 변경하지 않습니다.');
       if (Number(tool.photoCount) > 1) reject('이 툴의 사진 위치에 여러 사진이 있어 자동 교체할 수 없습니다.');
@@ -215,5 +257,5 @@
     output.eligible = Boolean(tool && output.last && output.due && !output.reasons.length);
     return output;
   }
-  global.ToolAutomation = Object.freeze({ assess });
+  global.ToolAutomation = Object.freeze({ assess, numericSerialMatches });
 })(typeof window !== 'undefined' ? window : globalThis);

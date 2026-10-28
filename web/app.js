@@ -7,7 +7,7 @@ const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>st
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','owner-partial-serial':'이름·부분 번호·엑셀 교정 주기 일치','smax-serial':'SMAX 등록 시리얼 일치','smax-due':'SMAX 차기 교정일 → Cal Next','unchanged-dates':'교정 날짜 유지','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={'numeric-cell-serial':'엑셀 숫자 형식의 시리얼 일치',serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','owner-partial-serial':'이름·부분 번호·엑셀 교정 주기 일치','smax-serial':'SMAX 등록 시리얼 일치','smax-due':'SMAX 차기 교정일 → Cal Next','unchanged-dates':'교정 날짜 유지','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
 const photoKind=p=>p?.photoKindOverride||p?.draft?.photoKind||p?.review?.photoKind||p?.assessment?.photoKind||(/smax/i.test(p?.result?.documentType||'')?'smax':'calibration');
 const photoSlot=p=>photoKind(p)==='smax'?'SMAX Tool Photo':'Label Photo';
 let seq=0,timer,restoreTask=Promise.resolve();
@@ -209,7 +209,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:'4.6',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:'4.7',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
