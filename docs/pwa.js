@@ -2,7 +2,7 @@
    enters service-worker messages or the public application cache. */
 (function (global) {
   'use strict';
-  const BUILD = '94516bfbadc891c404660a25';
+  const BUILD = '8eb5b098e35fcfc51f07fc58';
   let registration = null, promptEvent = null, requestedReload = false, reloadGuard = null, installationConfirmed = false;
   const details = { version: BUILD, supported: false, installed: false, offlineReady: false, updateAvailable: false, error: '' };
   const $ = id => document.getElementById(id);

@@ -114,6 +114,7 @@ def main():
         assert manifest['short_name'] == '툴 매니저'
         assert not re.search(r'/\*__[A-Z_]+__\*/', originals['index.html'].decode())
         assert all(entry['path'].startswith('./') for entry in info['shell'])
+        assert './team-settings.json' not in {entry['path'] for entry in info['shell']}
         assert info['private_data_included'] is False
         with server(root) as (url, requests), sync_playwright() as playwright:
             browser = playwright.chromium.launch(executable_path=args.chromium, headless=True, args=['--no-sandbox'])
@@ -231,6 +232,66 @@ def main():
             assert iphone.evaluate('ToolPWA.inspect().installed') is False
             outcomes['ios_instructions_without_false_install_claim'] = True
             ios.close()
+
+            # The centrally published destination can change without a new
+            # immutable app build. Exercise fresh launches through both an
+            # already installed shell and an entirely new browser context.
+            # IDs are synthetic; no Microsoft login or document is needed.
+            settings_path = output / 'team-settings.json'
+            first_team = {'enabled': True, 'v': 1,
+                          'clientId': '11111111-2222-4333-8444-555555555555',
+                          'tenantId': 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+                          'name': 'First team fixture',
+                          'target': {'driveId': 'fixture-drive', 'itemId': 'fixture-item-one', 'name': 'first-fixture.xlsx'}}
+            next_team = {**first_team, 'name': 'Second team fixture',
+                         'target': {'driveId': 'fixture-drive', 'itemId': 'fixture-item-two', 'name': 'second-fixture.xlsx'}}
+            settings_path.write_text(json.dumps(first_team))
+            configured = browser.new_context()
+            launched = configured.new_page()
+            launched.on('pageerror', lambda error: errors.append(str(error)))
+            launched.goto(url + 'index.html?source=homescreen')
+            launched.wait_for_function('window.ToolApp&&!ToolApp.state.busy&&window.ToolTeamConfig&&ToolTeamConfig.inspect().configured')
+            launched.wait_for_function('window.ToolPWA&&ToolPWA.inspect().offlineReady&&navigator.serviceWorker.controller', timeout=60000)
+            assert launched.evaluate('ToolTeamConfig.inspect().configuration.target') == first_team['target']
+            assert launched.evaluate('ToolSources.mode()') == 'microsoft365'
+            assert launched.locator('#cloud-workbook-url').input_value() == ''
+            first_caches = launched.evaluate(CACHE_STATE)
+            assert all('team-settings.json' not in key for cache in first_caches for key in cache['keys'])
+            outcomes['mutable_team_settings_excluded_from_shell_cache'] = True
+
+            launched.close()
+            settings_path.write_text(json.dumps(next_team))
+            relaunched = configured.new_page()
+            relaunched.on('pageerror', lambda error: errors.append(str(error)))
+            relaunched.goto(url + 'index.html?source=homescreen')
+            relaunched.wait_for_function('window.ToolApp&&!ToolApp.state.busy&&window.ToolTeamConfig&&ToolTeamConfig.inspect().configured')
+            assert relaunched.evaluate('ToolTeamConfig.inspect().configuration.target') == next_team['target']
+            assert relaunched.evaluate('!!navigator.serviceWorker.controller')
+            assert relaunched.evaluate(CACHE_STATE) == first_caches
+            assert relaunched.evaluate("fetch('./team-settings.json',{cache:'no-store'}).then(r=>r.json())") == next_team
+            assert relaunched.evaluate(CACHE_STATE) == first_caches
+            outcomes['installed_shell_reads_changed_destination_without_app_update'] = True
+
+            cold = browser.new_context()
+            cold_page = cold.new_page()
+            cold_page.on('pageerror', lambda error: errors.append(str(error)))
+            cold_page.goto(url + 'index.html')
+            cold_page.wait_for_function('window.ToolApp&&!ToolApp.state.busy&&window.ToolTeamConfig&&ToolTeamConfig.inspect().configured')
+            assert cold_page.evaluate('ToolTeamConfig.inspect().configuration.target') == next_team['target']
+            assert cold_page.evaluate('ToolM365Auth.inspect().configured&&!ToolM365Auth.inspect().signedIn')
+            assert not cold_page.locator('#connection-settings').evaluate('(element)=>element.open')
+            assert any(path.endswith('/team-settings.json') for method, path in requests if method == 'GET')
+            outcomes['cold_device_reads_latest_published_team_without_typing'] = True
+            cold.close()
+
+            configured.set_offline(True)
+            relaunched.reload()
+            relaunched.wait_for_function('window.ToolApp&&!ToolApp.state.busy&&window.ToolTeamConfig&&ToolTeamConfig.inspect().configured')
+            assert relaunched.evaluate('ToolTeamConfig.inspect().configuration.target') == next_team['target']
+            assert relaunched.evaluate(CACHE_STATE) == first_caches
+            outcomes['offline_installed_shell_keeps_remembered_destination'] = True
+            configured.close()
+            assert not errors, errors
             browser.close()
         # Deployment directories with unrelated data are refused, never wiped.
         extra = output / 'private-company.xlsx'

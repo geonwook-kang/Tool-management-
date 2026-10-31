@@ -1,22 +1,39 @@
-툴 검교정 매니저 5.0 · 휴대폰 앱 설치
+툴 검교정 매니저 5.1 · 휴대폰 앱 설치와 공용 엑셀 자동 연결
 
+앱 주소: https://geonwook-kang.github.io/Tool-management-/index.html
+GitHub Pages의 배포 성공과 실제 앱 실행은 사용자가 제공한 화면에서 확인했습니다.
 이 ZIP은 HTTPS 서버에 게시할 앱 파일입니다. 휴대폰에서 ZIP 안 HTML을 여는 방식은 설치가 아닙니다.
-
-GitHub Pages 게시:
-1. 저장소 Settings → Pages를 엽니다.
-2. Source: Deploy from a branch
-3. Branch: tool-manager-download / Folder: /docs → Save
-4. GitHub에 표시되는 HTTPS 주소를 확인합니다.
-5. 설치 주소: https://geonwook-kang.github.io/Tool-management-/index.html
-현재 실행 환경에서 Pages/API 도메인이 네트워크403으로 막혀 실제 게시 완료는 별도 확인이 필요합니다.
 
 Android: Chrome에서 주소 열기 → 앱 설치 또는 홈 화면에 추가.
 iPhone: Safari에서 주소 열기 → 공유 → 홈 화면에 추가.
 
-회사 앱 ID·테넌트 ID와 정확한 SPA 회신 주소를 Microsoft365-setup.md에 따라 설정하세요.
-공유 엑셀 링크를 연결하고 사진 촬영 또는 앨범에서 선택하면 같은 공유 원본을 갱신합니다.
-회사 문서 접근·수정 권한이 있는 계정으로 로그인해야 합니다.
-비밀번호·클라이언트 비밀키·회사 사진은 이 배포 파일에 포함하지 않습니다.
+[직원]
+담당자가 보낸 직원용 앱 링크를 열고 회사 계정으로 로그인합니다.
+지정된 엑셀에 자동 연결되면 [사진 촬영] 또는 [앨범에서 선택]으로 사진만 올리세요.
+직원은 엑셀 경로·앱 ID를 직접 입력하거나 엑셀 파일을 업로드할 필요가 없습니다.
+직원에게도 대상 회사 문서를 수정할 권한이 있어야 합니다.
+앱을 닫거나 토큰이 만료되면 회사 로그인이 다시 필요할 수 있습니다. 지정 문서는 기억합니다.
+
+[담당자: 처음 한 번]
+1. [담당자 연결 설정 · 직원용 링크]에서 공개 Client ID·Tenant ID와 Excel 공유 링크를 설정합니다.
+2. 회사 계정으로 로그인하고 실제 연결된 파일 이름을 확인합니다.
+3. [직원용 앱 링크 공유] 또는 [직원용 링크 복사]로 같은 연결을 직원에게 전달합니다.
+회사 Entra의 SPA 회신 주소·권한 설정은 Microsoft365-setup.md를 확인하세요.
+
+[모든 직원의 일반 앱 주소와 설치 앱에 공용 경로 적용]
+1. 연결이 확인된 담당자 앱에서 [공용 자동 연결 설정 받기]로 team-settings.json을 받습니다.
+2. GitHub 저장소에서 tool-manager-download 브랜치의 docs 폴더를 엽니다.
+3. Add file → Upload files로 기존 docs/team-settings.json을 내려받은 파일로 교체하고 커밋합니다.
+4. Actions → pages build and deployment가 성공하면 공용 경로가 적용됩니다.
+기본 파일은 비활성 상태이며 실제 앱·문서 ID로 생성한 설정 파일을 게시해야 적용됩니다.
+iPhone의 Safari와 홈 화면 앱은 저장소가 다를 수 있습니다. 설치 앱에도 입력 없이 적용하려면 공용 설정을 게시하세요.
+직원용 링크와 공용 설정에는 공개 앱·문서 ID·파일 이름만 포함합니다.
+회사 공유 URL·비밀번호·클라이언트 비밀키·토큰·사진·엑셀 내용은 포함하지 않습니다.
+
+[다른 HTTPS 서버에 게시할 때]
+앱 파일을 서버에 올리고 Entra SPA 회신 주소를 실제 앱 주소에 맞춥니다.
+GitHub Pages를 다시 설정해야 하면 Settings → Pages에서
+Deploy from a branch / tool-manager-download / /docs를 선택합니다.
 
 검증 범위: 모바일 화면, 실제 사진 OCR, OAuth/Graph 프로토콜, 실제 OOXML 파일 저장·백업,
 PWA 오프라인 실행과 업데이트를 자동 검사했습니다. Microsoft 서버 응답은 통제된 테스트이며

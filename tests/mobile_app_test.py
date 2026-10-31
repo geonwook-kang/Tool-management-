@@ -80,6 +80,14 @@ def ready(page):
     page.wait_for_function("window.ToolApp&&window.ToolSources&&!ToolApp.state.busy&&!ToolApp.state.restoring")
 
 
+def reveal_settings(page, selector):
+    """Open the visible settings disclosure before changing its controls."""
+    for item in page.locator(selector).evaluate("el=>{const ids=[];for(let p=el.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS'&&p.id)ids.push(p.id);return ids.reverse();}"):
+        details = page.locator("#" + item)
+        if not details.evaluate("el=>el.open"):
+            details.locator(":scope > summary").click()
+
+
 def layout(page):
     value = page.evaluate("""()=>({
       viewport:innerWidth,document:document.documentElement.scrollWidth,
@@ -144,6 +152,8 @@ def main():
                     return request_route.abort()
                 if parsed.hostname in {"graph.microsoft.com", "download.example.test"}:
                     return cloud.route(request_route)
+                if parsed.netloc == urlsplit(url).netloc and parsed.path.endswith("/team-settings.json"):
+                    return request_route.fulfill(status=200, content_type="application/json", headers={"cache-control": "no-store"}, body='{"enabled":false}')
                 if parsed.netloc != urlsplit(url).netloc:
                     unexpected.append(request_route.request.url)
                     return request_route.abort()
@@ -158,6 +168,7 @@ def main():
             # This is the only authentication seam. All Graph HTTP, source
             # metadata, download/PUT, concurrency and backup logic stay real.
             page.evaluate("token=>{window.ToolM365Auth={...ToolM365Auth,getAccessToken:async()=>token};}", TOKEN)
+            reveal_settings(page, "#m365-client-id")
             page.locator("#m365-client-id").fill(CLIENT)
             page.locator("#m365-tenant-id").fill(TENANT)
             page.locator("#cloud-workbook-url").fill(SHARE)
@@ -244,6 +255,7 @@ def main():
         if not args.oauth_only:
             cloud = Cloud(original)
             context, page = context_for("android", cloud)
+            reveal_settings(page, "#source-mode")
             page.locator("#source-mode").select_option("device")
             page.wait_for_function("ToolSources.mode()==='device'&&!ToolApp.state.busy&&!ToolApp.state.restoring")
             with page.expect_file_chooser() as picker:
@@ -279,6 +291,7 @@ def main():
         picker.value.set_files({"name": "before-login.jpg", "mimeType": "image/jpeg", "buffer": args.photo.read_bytes()})
         page.wait_for_function("ToolApp.state.photos.length===1&&!ToolApp.state.busy")
         assert not page.evaluate("!!ToolApp.state.model") and not cloud.calls
+        reveal_settings(page, "#m365-client-id")
         page.locator("#m365-client-id").fill(CLIENT)
         page.locator("#m365-tenant-id").fill(TENANT)
         page.locator("#cloud-workbook-url").fill(SHARE)

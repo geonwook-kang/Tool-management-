@@ -8,12 +8,36 @@ from __future__ import annotations
 import argparse
 from hashlib import sha256
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent
+
+
+def published_settings():
+    """Keep a separately published target; never package sharing URLs/secrets."""
+    path = ROOT.parent / 'docs/team-settings.json'
+    value = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'enabled': False}
+    if value == {'enabled': False}:
+        return b'{"enabled":false}\n'
+    if not isinstance(value, dict) or set(value) - {'enabled', 'v', 'clientId', 'tenantId', 'name', 'target'} or value.get('enabled') is not True or value.get('v') != 1:
+        raise ValueError('Published team settings must contain only public app IDs and an exact workbook target')
+    guid = r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
+    tenant = value.get('tenantId', '')
+    if not isinstance(value.get('clientId'), str) or not re.fullmatch(guid, value['clientId']) or not isinstance(tenant, str) or not (re.fullmatch(guid, tenant) or tenant == 'organizations' or re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.onmicrosoft\.com', tenant)):
+        raise ValueError('Published client and tenant IDs are invalid')
+    target = value.get('target')
+    if not isinstance(target, dict) or set(target) != {'driveId', 'itemId', 'name'} or any(not isinstance(target.get(k), str) or not re.fullmatch(r'[A-Za-z0-9!._~-]{1,200}', target[k]) for k in ('driveId', 'itemId')):
+        raise ValueError('Published workbook target is invalid')
+    for name, maximum in ((value.get('name', ''), 120), (target.get('name', ''), 255)):
+        if not isinstance(name, str) or len(name) > maximum or re.search(r'[\x00-\x1f\x7f]', name):
+            raise ValueError('Published workbook name is invalid')
+    if not target['name'].lower().endswith('.xlsx') or re.search(r'[/\\]', target['name']):
+        raise ValueError('Published workbook must be an .xlsx file')
+    return (json.dumps(value, ensure_ascii=False, indent=2) + '\n').encode()
 
 
 def main():
@@ -59,7 +83,7 @@ def main():
     assets = {'index.html': html.replace('__PWA_BUILD__', version).encode('utf-8'),
               'pwa.js': pwa.replace('__PWA_BUILD__', version).encode('utf-8'), **static}
     manifest = [{'path': './' + name, 'sha256': sha256(data).hexdigest(), 'bytes': len(data)} for name, data in sorted(assets.items())]
-    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json'}
+    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json', 'team-settings.json'}
     unexpected = [str(path.relative_to(output)) for path in output.rglob('*') if path.is_file() and str(path.relative_to(output)) not in allowed]
     if unexpected:
         raise ValueError('PWA output contains unrelated files; choose a separate empty directory: ' + ', '.join(unexpected))
@@ -67,6 +91,9 @@ def main():
         path = output / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+    # Fetch afresh on launch; do not put mutable team configuration in the
+    # immutable service-worker shell or its install checksums.
+    (output / 'team-settings.json').write_bytes(published_settings())
     script = worker.replace('__PWA_BUILD__', version).replace('/*__PWA_ASSETS__*/[]', json.dumps(manifest, separators=(',', ':')))
     (output / 'service-worker.js').write_text(script, encoding='utf-8')
     (output / '.nojekyll').write_text('', encoding='utf-8')

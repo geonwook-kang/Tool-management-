@@ -37,16 +37,19 @@ class Cloud:
         self.mode = "normal"
         self.metadata_reads = 0
         self.race_at_get = None
+        self.item_overrides = {}
 
     @property
     def tag(self):
         return f'"version-{self.revision}"'
 
     def item(self):
-        return {"id": "item-123", "name": NAME, "eTag": self.tag, "size": len(self.data),
-                "file": {"mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-                "parentReference": {"driveId": "drive-123"},
-                "@microsoft.graph.downloadUrl": "https://download.example.test/document?ticket=" + TICKET}
+        result = {"id": "item-123", "name": NAME, "eTag": self.tag, "size": len(self.data),
+                  "file": {"mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+                  "parentReference": {"driveId": "drive-123"},
+                  "@microsoft.graph.downloadUrl": "https://download.example.test/document?ticket=" + TICKET}
+        result.update(self.item_overrides)
+        return result
 
     def route(self, route):
         request = route.request
@@ -233,6 +236,67 @@ def main():
             assert restored["connected"]
             outcomes["restore_requires_real_authentication"] = True
             context.close()
+
+            # A staff launch link identifies one exact drive/item without
+            # requiring a private SharePoint sharing URL or redeeming a link.
+            cloud = Cloud(small_original)
+            context = new_context(browser, cloud)
+            page = context.new_page()
+            load_module(page, url, small_original, small_updated)
+            direct = page.evaluate("""async()=>{
+              const connected=await ToolGraphFile.connect({target:{driveId:'drive-123',itemId:'item-123'},validate:async file=>{
+                if(file.name!=='shared-tools.xlsx'||await testHash(await file.arrayBuffer())!==await testHash(originalBytes))throw Error('wrong file');
+              }});
+              const before=await ToolGraphFile.read();
+              await ToolGraphFile.save({expectedVersion:before.version,bytes:updatedBytes});
+              return {connected:connected.connected,target:ToolGraphFile.inspect().target,hash:await testHash((await ToolGraphFile.read()).bytes)};
+            }""")
+            assert direct["connected"] and direct["target"] == {"driveId": "drive-123", "itemId": "item-123", "name": NAME}
+            assert direct["hash"] == sha256(small_updated).hexdigest() and len(cloud.puts) == 1
+            assert not any("/shares/" in call["path"] for call in cloud.calls)
+            outcomes["exact_target_connects_and_saves_without_share_link"] = True
+            page.reload()
+            page.evaluate(SETUP)
+            page.add_script_tag(path=REPO / "web/graph-file.js")
+            assert page.evaluate("async()=>{const s=await ToolGraphFile.restore();return s.connected&&s.target.itemId==='item-123'}")
+            outcomes["verified_exact_target_is_persisted"] = True
+            context.close()
+
+            negative_targets = [
+                ("target_and_share_link", {"shareUrl": SHARE, "target": {"driveId": "drive-123", "itemId": "item-123"}}, {}, "normal", None),
+                ("invalid_target_id", {"target": {"driveId": "drive-123", "itemId": "item-123\n"}}, {}, "normal", None),
+                ("invalid_target_name", {"target": {"driveId": "drive-123", "itemId": "item-123", "name": "program.html"}}, {}, "normal", None),
+                ("target_permission_denied", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {}, "read403", None),
+                ("wrong_item_metadata", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {"id": "other-item"}, "normal", None),
+                ("wrong_drive_metadata", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {"parentReference": {"driveId": "other-drive"}}, "normal", None),
+                ("target_is_folder", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {"folder": {}}, "normal", None),
+                ("target_not_xlsx", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {"name": "wrong.pdf"}, "normal", None),
+                ("target_too_large", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {"size": 100 * 1024 * 1024 + 1}, "normal", None),
+                ("target_corrupt_bytes", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {}, "normal", "bytes"),
+                ("target_validation_rejects", {"target": {"driveId": "drive-123", "itemId": "item-123"}}, {}, "normal", "validate"),
+            ]
+            for label, options, overrides, mode, reject in negative_targets:
+                print("Graph protocol:", label, flush=True)
+                cloud = Cloud(small_original)
+                cloud.item_overrides = overrides
+                cloud.mode = mode
+                if reject == "bytes":
+                    cloud.data = b"NO" + small_original[2:]
+                context = new_context(browser, cloud)
+                page = context.new_page()
+                load_module(page, url, small_original, small_updated)
+                result = page.evaluate("""async({options,reject})=>{
+                  if(reject==='validate')options.validate=async()=>{throw Error('TEST_WORKBOOK_VALIDATION_REJECTED');};
+                  const result=await tryGraph(()=>ToolGraphFile.connect(options));
+                  const after=await ToolGraphFile.restore();
+                  return {result,connected:after.connected,target:after.target};
+                }""", {"options": options, "reject": reject})
+                assert not result["result"]["ok"] and not result["connected"] and result["target"] is None, (label, result)
+                assert not cloud.puts and not any("/shares/" in call["path"] for call in cloud.calls)
+                if label in {"target_and_share_link", "invalid_target_id", "invalid_target_name"}:
+                    assert not cloud.calls
+                outcomes[label + "_not_persisted"] = result["result"]["code"]
+                context.close()
 
             def scenario(label, mode="normal"):
                 print("Graph protocol:", label, flush=True)

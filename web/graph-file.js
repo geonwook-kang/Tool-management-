@@ -114,7 +114,7 @@
   }
   async function metadata(target) {
     const value = await (await graph(itemPath(target) + select)).json();
-    if (value.id !== target.itemId || value.folder || !value.file || !/\.xlsx$/i.test(String(value.name || '')) || !Number.isFinite(value.size) || value.size < 4 || value.size > LIMIT) throw failure('invalid-target', '공유 문서가 100 MB 이하의 .xlsx 엑셀인지 확인해 주세요.');
+    if (value.id !== target.itemId || !value.parentReference || value.parentReference.driveId !== target.driveId || value.folder || !value.file || !/\.xlsx$/i.test(String(value.name || '')) || !Number.isFinite(value.size) || value.size < 4 || value.size > LIMIT) throw failure('invalid-target', '공유 문서가 100 MB 이하의 .xlsx 엑셀인지 확인해 주세요.');
     etag(value.eTag); return value;
   }
   async function download(value) {
@@ -163,14 +163,26 @@
       try {
         if (!supported()) throw failure('unsupported', 'HTTPS 앱에서 브라우저 저장소를 허용한 후 다시 연결해 주세요.');
         const settings = typeof options === 'string' ? { shareUrl: options } : options || {};
-        let url;
-        try { url = new URL(String(settings.shareUrl || '').trim()); } catch (_) { throw failure('invalid-link', '회사 Excel의 HTTPS 공유 링크를 입력해 주세요.'); }
-        if (url.protocol !== 'https:' || url.username || url.password || url.href.length > 12000) throw failure('invalid-link', '회사 Excel의 HTTPS 공유 링크를 입력해 주세요.');
-        await accessToken(); cachedSnapshot = null;
-        const resolved = await (await graph('/shares/u!' + base64url(url.href) + '/driveItem' + select, { headers: { Prefer: 'redeemSharingLinkIfNecessary' } })).json();
-        const item = resolved.remoteItem || resolved;
-        const candidate = targetValue({ driveId: item.parentReference && item.parentReference.driveId, itemId: item.id, name: item.name });
-        const current = await snapshot(candidate);
+        if (typeof settings !== 'object' || Array.isArray(settings)) throw failure('invalid-target', '회사 Excel 연결 정보를 확인해 주세요.');
+        let reference;
+        if ('target' in settings) {
+          if ('shareUrl' in settings) throw failure('invalid-target', '문서 ID와 공유 링크 중 하나로만 연결해 주세요.');
+          const target = settings.target;
+          if (!target || typeof target !== 'object' || !validId(target.driveId) || !validId(target.itemId)
+            || target.name !== undefined && (typeof target.name !== 'string' || !/\.xlsx$/i.test(target.name))) throw failure('invalid-target', '지정된 회사 Excel 문서 ID를 확인해 주세요.');
+          reference = { driveId: target.driveId, itemId: target.itemId };
+          await accessToken(); cachedSnapshot = null;
+        } else {
+          let url;
+          try { url = new URL(String(settings.shareUrl || '').trim()); } catch (_) { throw failure('invalid-link', '회사 Excel의 HTTPS 공유 링크를 입력해 주세요.'); }
+          if (url.protocol !== 'https:' || url.username || url.password || url.href.length > 12000) throw failure('invalid-link', '회사 Excel의 HTTPS 공유 링크를 입력해 주세요.');
+          await accessToken(); cachedSnapshot = null;
+          const resolved = await (await graph('/shares/u!' + base64url(url.href) + '/driveItem' + select, { headers: { Prefer: 'redeemSharingLinkIfNecessary' } })).json();
+          const item = resolved.remoteItem || resolved;
+          reference = targetValue({ driveId: item.parentReference && item.parentReference.driveId, itemId: item.id, name: item.name });
+        }
+        const current = await snapshot(reference);
+        const candidate = targetValue({ driveId: reference.driveId, itemId: reference.itemId, name: current.file.name });
         if (typeof settings.validate === 'function') await settings.validate(current.file);
         await stored('targets', 'put', 'selected', candidate);
         selected = candidate; backup = await stored('backups', 'get', targetKey(candidate)) || null;
