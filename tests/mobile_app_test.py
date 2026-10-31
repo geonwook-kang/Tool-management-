@@ -163,7 +163,8 @@ def main():
             page.goto(url)
             ready(page)
             # These cases exercise the optional external Microsoft 365 source.
-            # The default unconfigured phone now offers SharePoint installation.
+            # The default unconfigured phone now opens the local workbook runner.
+            reveal_settings(page, "#source-mode")
             page.locator("#source-mode").select_option("microsoft365")
             ready(page)
             return context, page

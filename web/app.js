@@ -63,6 +63,13 @@ function refreshSource(){
  const c=state.source,locked=state.busy||state.preparing||c.saving,mode=sourceMode(),cloud=mode==='microsoft365',sp=mode==='sharepoint',hosted=ToolSources.inspect().hosted,device=mode==='device',auth=ToolM365Auth.inspect();
  for(const id of ['connect-onedrive','connect-team','reconnect-onedrive','disconnect-onedrive','retry-connected-save','source-mode','device-workbook','m365-signin','m365-signout','m365-save-config','m365-client-id','m365-tenant-id','cloud-workbook-url','share-team-link','copy-team-link','download-team-settings'])$(id).disabled=locked;
  $('source-mode').value=mode;$('m365-panel').hidden=!cloud;$('m365-setup-fields').hidden=!cloud;
+ if(ToolSources.inspect().directEntry)for(const option of $('source-mode').options)if(!['device','desktop'].includes(option.value)){option.hidden=true;option.disabled=true;}
+ $('quick-start').hidden=hosted||!['device','desktop'].includes(mode);
+ $('quick-workbook').disabled=locked;$('quick-workbook').textContent=c.connected?'엑셀 바꾸기':'관리 엑셀 처음 한 번 선택';
+ $('quick-clear-workbook').hidden=!device||!c.connected;$('quick-clear-workbook').disabled=locked;
+ $('quick-download-workbook').hidden=!device||!c.connected;$('quick-download-workbook').disabled=locked;
+ $('quick-summary').textContent=c.error?'엑셀 상태를 확인해 주세요: '+c.error:c.connected?c.name+(device?' · 이 기기에 보관됨 · 다음부터 사진만 올리세요.':' · 이 PC의 파일에 연결됨 · 사진을 올리면 반영합니다.'):device?'엑셀을 한 번 선택하면 이 기기에 기억합니다. 다음 실행부터 사진만 촬영하거나 선택하세요.':'관리 엑셀을 한 번 선택하고 사진을 올리세요.';
+ $('quick-save-note').textContent=device?'처리한 엑셀 사본은 이 기기에 자동 저장됩니다. 회사 SharePoint 원본은 변경하지 않습니다.':'이 PC에서 선택한 파일에 저장합니다. OneDrive 동기화 파일을 선택했다면 서버 반영은 OneDrive에서 확인하세요.';
  $('sharepoint-panel').hidden=!sp;$('sharepoint-host-note').hidden=!sp||!hosted;$('sharepoint-install-links').hidden=!sp||hosted;
  $('connection-settings').hidden=hosted;$('source-mode').disabled=locked||hosted;
  $('sharepoint-host-note').textContent=c.error?'연결 결과를 확인한 뒤 다시 시도하세요.':c.connected?'현재 회사 로그인으로 연결됐습니다. 사진만 촬영하거나 선택하세요.':'현재 SharePoint 로그인으로 지정된 엑셀을 확인하고 있습니다.';
@@ -164,7 +171,7 @@ function refresh(){
  refreshMemory();
  const selected=approved(),autos=selected.filter(p=>p.approval==='automatic').length,engineErrors=state.photos.filter(engineFailed).length,pending=state.photos.length-selected.length-engineErrors;
  $('photo-count').textContent=state.photos.length+'장';
- $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.saved?'✓ 연결 파일 저장됨':p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':engineFailed(p)?'⚠ 인식 엔진 실행 실패':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
+ $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.saved?(sourceMode()==='device'?'✓ 이 기기에 저장됨':'✓ 연결 파일 저장됨'):p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':engineFailed(p)?'⚠ 인식 엔진 실행 실패':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
  $('photo-list').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>selectPhoto(b.dataset.id));
  for(const id of ['workbook','photos','automatic-mode','camera','take-photo','choose-photos'])$(id).disabled=state.busy||state.source.saving;
  $('photos').disabled=state.busy||state.source.saving||state.source.needsPermission||state.source.needsReconnect||ToolSources.inspect().pendingCheckout||(sourceMode()==='sharepoint'&&!ToolSources.inspect().hosted&&!state.model);
@@ -174,10 +181,10 @@ function refresh(){
  $('cancel-recognition').hidden=!state.busy||!state.photos.length;
  $('export').disabled=state.busy||state.preparing||(!state.preparedResult&&!(state.preparationError&&selected.length));$('export').textContent=state.preparationError?'엑셀 다시 생성·저장':state.source.connected?'저장된 엑셀 사본 받기 ↓':'자동 생성된 엑셀 저장 ↓';$('download-log').disabled=state.busy||!selected.length;
  $('process-summary').textContent=`자동 반영 ${autos}장 · 보정 반영 ${selected.length-autos}장 · 확인 필요 ${pending}장${engineErrors?' · 엔진 오류 '+engineErrors+'장':''}`;
- $('export-summary').textContent=state.preparing?'날짜와 사진을 엑셀에 반영하는 중…':state.source.error?'연결 파일 자동 저장 확인 필요':state.source.connected&&state.source.savedAt?`${selected.length}장 처리됨 · 연결 파일 자동 저장 완료`:state.preparedResult?`${selected.length}개 툴 반영 완료 · 수정본 준비됨`:`반영할 사진 ${selected.length}장 / 전체 ${state.photos.length}장`;
+ $('export-summary').textContent=state.preparing?'날짜와 사진을 엑셀에 반영하는 중…':state.source.error?'연결 파일 자동 저장 확인 필요':state.source.connected&&state.source.savedAt?`${selected.length}장 처리됨 · ${sourceMode()==='device'?'이 기기에':'연결 파일에'} 자동 저장 완료`:state.preparedResult?`${selected.length}개 툴 반영 완료 · 수정본 준비됨`:`반영할 사진 ${selected.length}장 / 전체 ${state.photos.length}장`;
  $('review-counter').textContent=engineErrors?'엔진 오류 '+engineErrors+'장':pending?'확인 필요 '+pending+'장':selected.length?'자동 처리 완료':'대기';
  const isAuto=current()?.approval==='automatic';$('manual-confirm-row').hidden=isAuto;$('save-review').hidden=isAuto;
- if(state.preparedResult){const a=$('automatic-result-download');a.href=state.preparedResult.url;a.download=state.preparedResult.name;a.textContent=state.source.connected&&!state.source.error?'연결 파일에 저장 완료 · 사본 다운로드 (선택)':'자동 반영된 엑셀 저장 ↓';a.hidden=false;}
+ if(state.preparedResult){const a=$('automatic-result-download');a.href=state.preparedResult.url;a.download=state.preparedResult.name;a.textContent=state.source.connected&&!state.source.error?(sourceMode()==='device'?'이 기기에 저장 완료 · 엑셀 다운로드':'연결 파일에 저장 완료 · 사본 다운로드 (선택)'):'자동 반영된 엑셀 저장 ↓';a.hidden=false;}
 }
 function saveDraft(){const p=current();if(p&&state.model&&!$('review-panel').hidden&&!$('review-form').hidden)p.draft={...p.draft,...Object.fromEntries(['name','serial','last','due'].map(k=>[k,$(k).value])),toolId:$('tool-select').value,photoKind:$('photo-kind').value,updateDue:$('photo-kind').value!=='smax'||$('smax-update-due').checked};}
 function schedule(){clearTimeout(timer);if(approved().length)timer=setTimeout(prepareResult,450);}
@@ -294,7 +301,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:'5.2',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:'5.3',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
@@ -309,6 +316,17 @@ async function downloadDiagnostics(){
 $('workbook').onchange=e=>readWorkbook(e.target.files[0]);$('photos').onchange=e=>addPhotos([...e.target.files]);
 $('camera').onchange=e=>addPhotos([...e.target.files]);$('take-photo').onclick=()=>$('camera').click();$('choose-photos').onclick=()=>$('photos').click();
 $('device-workbook').onchange=e=>connectSource(false,e.target.files[0]);
+$('quick-workbook').onclick=()=>{
+ if(state.busy||state.preparing||state.source.saving)return;
+ if(sourceMode()==='desktop'&&ToolConnectedFile.inspect().supported){connectSource(false);return;}
+ ToolSources.use('device');refresh();$('device-workbook').value='';$('device-workbook').click();
+};
+$('quick-download-workbook').onclick=async()=>{if(sourceMode()!=='device'||state.busy||state.preparing||state.source.saving)return;try{const snapshot=await ToolMobileFile.read();download(new Blob([snapshot.bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),snapshot.file.name);status('이 기기에 보관한 엑셀의 다운로드를 요청했습니다. 회사 공유 원본은 변경하지 않았습니다.','success');}catch(e){status(e.message,'error');}};
+$('quick-clear-workbook').onclick=async()=>{
+ if(sourceMode()!=='device'||state.busy||state.preparing||state.source.saving)return;
+ if(!window.confirm('이 기기의 엑셀 사본·백업과 현재 화면의 사진 작업을 삭제할까요? 회사 공유 원본은 변경하지 않습니다.'))return;
+ state.busy=true;refresh();try{await ToolMobileFile.disconnect();for(const p of state.photos)URL.revokeObjectURL(p.url);state.photos=[];state.selectedId=null;state.model=null;state.workbookName='';invalidate();state.source={connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:state.source.epoch+1,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false};$('workbook-summary').textContent='관리 엑셀을 한 번 선택해 주세요.';$('workbook-badge').textContent='처음 한 번 선택';status('이 기기에 보관한 사본을 지웠습니다. 새 엑셀을 선택해 사용할 수 있습니다.');}catch(e){status(e.message,'error');}finally{state.busy=false;refresh();render();}
+};
 $('share-workbook').onclick=async()=>{if(!state.preparedResult||state.busy||state.preparing||state.source.saving)return;const file=new File([state.preparedResult.blob],state.preparedResult.name,{type:state.preparedResult.blob.type});try{if(navigator.canShare?.({files:[file]}))await navigator.share({files:[file],title:'툴 검교정 엑셀'});else download(file,file.name);}catch(e){if(e.name!=='AbortError')status('엑셀 공유 실패: '+e.message+' 엑셀 저장 버튼으로 내려받을 수 있습니다.','error');}};
 $('m365-save-config').onclick=()=>{try{configureM365();status('회사 앱 연결 설정을 이 기기에 저장했습니다. 회사 계정으로 로그인하세요.','success');}catch(e){status(e.message,'error');}};
 $('m365-signin').onclick=companySignIn;
@@ -362,6 +380,7 @@ async function restorePendingPhotos(){
 async function restoreAfterLogin(){
  teamStartupError='';
  if(ToolSources.inspect().hosted){await startSharePoint();return;}
+ if(ToolSources.inspect().directEntry){await restoreSource();return;}
  fillAuthSettings();
  try{$('cloud-workbook-url').value=localStorage.getItem(boundCloudLinkKey)||localStorage.getItem(cloudLinkKey)||'';}catch(_){}
  let invitation=null;
@@ -410,7 +429,7 @@ async function restoreAfterLogin(){
 window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult,connectSource,retrySource,companySignIn};state.restoring=true;state.busy=true;refresh();
 restoreTask=restoreAfterLogin().catch(e=>{state.busy=false;state.restoring=false;refresh();render();status('이전 작업을 불러오지 못했습니다. '+e.message,'error');});
 window.addEventListener('hashchange',async()=>{
- if(ToolSources.inspect().hosted)return;
+ if(ToolSources.inspect().hosted||ToolSources.inspect().directEntry)return;
  let incoming;try{incoming=ToolTeamConfig.takeInvitation();}catch(e){status(e.message,'error');return;}
  if(!incoming)return;
  if(state.busy||state.preparing||state.source.saving||state.photos.some(p=>!p.saved)){status('현재 사진 작업을 먼저 완료한 뒤 직원용 링크를 다시 열어 주세요. 저장 대상은 변경하지 않았습니다.','error');return;}

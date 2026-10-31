@@ -41,8 +41,11 @@ def settled(page):
 
 
 def protect_unrelated_state(page):
-    if not page.locator("#sharepoint-url").is_visible():
-        page.locator("#sharepoint-url").locator("xpath=ancestor::details[1]").locator("summary").click()
+    if not page.locator("#connection-settings").evaluate("el=>el.open"):
+        page.locator("#connection-settings > summary").click()
+    section = page.locator("#sharepoint-url").locator("xpath=ancestor::details[1]")
+    if not section.evaluate("el=>el.open"):
+        section.locator("summary").click()
     page.locator("#sharepoint-url").fill("https://example.invalid/" + PRIVATE)
     page.locator("#remember-sharepoint").click()
     page.evaluate("""({privateMarker,otherMarker})=>{
@@ -78,7 +81,7 @@ def download_report(page, temporary, label, original, other):
     assert other.name.encode() not in raw
     report = json.loads(raw)
     assert set(report) == {"schema", "programVersion", "createdAt", "photo", "ocr", "assessment", "processing"}
-    assert report["schema"] == 1 and report["programVersion"] == "5.2"
+    assert report["schema"] == 1 and report["programVersion"] == "5.3"
     assert report["photo"]["entry"] == "original.jpg"
     assert report["photo"]["name"] == original.name
     assert report["photo"]["size"] == len(original.read_bytes())
@@ -136,7 +139,7 @@ def main():
             page.on("dialog", lambda dialog: dialog.accept())
             page.goto(url)
             settled(page)
-            assert page.locator("#download-diagnostics").count() == 1, "Build v5.2 before running diagnostics test"
+            assert page.locator("#download-diagnostics").count() == 1, "Build v5.3 before running diagnostics test"
             origin = urlsplit(url).netloc
             context.route("**/*", lambda route: (requests.append(route.request.url), route.abort())
                           if urlsplit(route.request.url).scheme in {"http", "https"}

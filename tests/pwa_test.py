@@ -132,6 +132,23 @@ def main():
             initial = page.evaluate(CACHE_STATE)
             assert len(initial) == 1 and len(initial[0]['keys']) == len(info['shell'])
             outcomes['verified_complete_precache'] = True
+            # A direct link must show the standalone program even while an
+            # older root-scoped worker controls navigation. It is not the
+            # cached index shell and needs no SharePoint installation page.
+            direct = context.new_page()
+            direct_response = direct.goto(url + 'direct.html')
+            direct.wait_for_function('window.ToolApp&&!ToolApp.state.busy&&!ToolApp.state.restoring')
+            assert direct_response.status == 200
+            direct_hash = direct.evaluate("""async()=>{
+              const response=await fetch(location.href,{cache:'no-store'}),bytes=await response.arrayBuffer();
+              return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+            }""")
+            assert direct_hash == sha256((output / 'direct.html').read_bytes()).hexdigest()
+            assert direct.locator('#quick-workbook').is_visible()
+            assert direct.evaluate('!!navigator.serviceWorker.controller&&!window.ToolPWA')
+            assert all('direct.html' not in key for cache in direct.evaluate(CACHE_STATE) for key in cache['keys'])
+            direct.close()
+            outcomes['direct_link_bypasses_installed_shell_cache'] = True
             # Exercise the real immutable self-export after user-visible
             # configuration and a decoded photo have entered the live app.
             exported = page.evaluate("""async()=>{

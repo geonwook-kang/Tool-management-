@@ -195,6 +195,7 @@ def ui_checks(context, page, url, args, temporary):
     page.goto(url)
     page.wait_for_function("window.ToolApp")
     generic_link = "https://example.sharepoint.com/sites/Calibration/Shared%20Documents/Tools.xlsx"
+    page.locator("#connection-settings > summary").click()
     page.locator("#sharepoint-url").evaluate("el=>{el.closest('details').open=true;}")
     page.locator("#sharepoint-url").fill(generic_link)
     page.locator("#remember-sharepoint").click()
@@ -267,6 +268,7 @@ def ui_checks(context, page, url, args, temporary):
     page.reload()
     page.wait_for_function("window.ToolApp&&ToolConnectedFile.inspect().needsPermission")
     assert not page.evaluate("ToolApp.state.source.connected")
+    page.locator("#connection-settings > summary").click()
     assert page.locator("#reconnect-onedrive").is_visible()
     page.locator("#reconnect-onedrive").click()
     ready(page)
@@ -283,6 +285,7 @@ def conflict_ui(context, page, url, args, temporary):
     context.add_init_script("(" + PICKER_SCRIPT + ")()")
     page.goto(url)
     page.wait_for_function("window.ToolApp")
+    page.locator("#connection-settings > summary").click()
     seed_file(page, args.workbook)
     page.locator("#connect-onedrive").click()
     page.wait_for_function("ToolApp.state.source.connected&&!!ToolApp.state.model")

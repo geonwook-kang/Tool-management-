@@ -83,7 +83,7 @@ def main():
     assets = {'index.html': html.replace('__PWA_BUILD__', version).encode('utf-8'),
               'pwa.js': pwa.replace('__PWA_BUILD__', version).encode('utf-8'), **static}
     manifest = [{'path': './' + name, 'sha256': sha256(data).hexdigest(), 'bytes': len(data)} for name, data in sorted(assets.items())]
-    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json', 'team-settings.json'}
+    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json', 'team-settings.json', 'direct.html'}
     unexpected = [str(path.relative_to(output)) for path in output.rglob('*') if path.is_file() and str(path.relative_to(output)) not in allowed]
     if unexpected:
         raise ValueError('PWA output contains unrelated files; choose a separate empty directory: ' + ', '.join(unexpected))
@@ -94,10 +94,14 @@ def main():
     # Fetch afresh on launch; do not put mutable team configuration in the
     # immutable service-worker shell or its install checksums.
     (output / 'team-settings.json').write_bytes(published_settings())
+    # The direct entry opens the standalone program and bypasses an older
+    # installed shell's index cache. It needs no site installation or manifest.
+    direct = base.replace('<head>', '<head><meta name="tool-manager-direct-entry" content="true">', 1)
+    (output / 'direct.html').write_text(direct, encoding='utf-8')
     script = worker.replace('__PWA_BUILD__', version).replace('/*__PWA_ASSETS__*/[]', json.dumps(manifest, separators=(',', ':')))
     (output / 'service-worker.js').write_text(script, encoding='utf-8')
     (output / '.nojekyll').write_text('', encoding='utf-8')
-    info = {'version': version, 'standalone_sha256': sha256(base.encode()).hexdigest(),
+    info = {'version': version, 'standalone_sha256': sha256(base.encode()).hexdigest(), 'direct_entry': './direct.html',
             'index_sha256': sha256(assets['index.html']).hexdigest(), 'shell': manifest,
             'private_data_included': False}
     (output / 'build-info.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
