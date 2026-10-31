@@ -18,7 +18,7 @@ async function save(kind){const button=$(kind==='zip'?'save-program-zip':'save-p
 window.ToolDistribution={html,zip};
 window.addEventListener('DOMContentLoaded',()=>{
  // This listener is registered before app.js. Capture once, before any uploads.
- const clean=document.documentElement.cloneNode(true);clean.querySelectorAll('[data-pwa-shell]').forEach(node=>node.remove());
+ const clean=document.documentElement.cloneNode(true);clean.querySelectorAll('[data-pwa-shell],[data-sharepoint-shell]').forEach(node=>node.remove());
  pristine='<!doctype html>\n'+clean.outerHTML;
  $('save-program-html').onclick=()=>save('html');$('save-program-zip').onclick=()=>save('zip');$('show-save-source').onclick=reveal;
  $('copy-program-source').onclick=async()=>{reveal();const area=$('program-source-text');try{if(!navigator.clipboard?.writeText)throw new Error();await navigator.clipboard.writeText(area.value);feedback('전체 코드를 복사했습니다. 메모장에 붙여넣으세요.');}catch(_){area.focus();area.select();feedback('코드를 모두 선택했습니다. Ctrl+C 또는 맥에서 ⌘C를 누르세요.');}};

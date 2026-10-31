@@ -1,0 +1,13 @@
+node_modules/
+lib/
+lib-commonjs/
+dist/
+temp/
+release/
+sharepoint/
+src/generated/
+*.sppkg
+*.log
+lib-dts/
+lib-esm/
+.heft/

@@ -73,7 +73,7 @@
   }
   function graphError(code) {
     if (code === 401) return failure('auth-required', '회사 Microsoft 365 로그인이 만료됐습니다. 다시 로그인한 후 원본을 읽어 주세요.');
-    if (code === 403) return failure('permission-denied', '회사 계정의 문서 접근·수정 권한 또는 앱 사용 동의가 없습니다. 회사 IT의 권한 설정을 확인해 주세요.');
+    if (code === 403) return failure('permission-denied', '현재 로그인으로 파일 요청이 거절됐습니다(403). 로그인 계정과 파일의 편집 권한을 확인해 주세요.');
     if (code === 404) return failure('not-found', '공유 엑셀을 찾지 못했습니다. 문서의 공유 링크를 다시 연결해 주세요.');
     if (code === 412) return failure('conflict', '다른 사용자나 Excel이 공유 문서를 변경했습니다. 덮어쓰지 않았습니다. 최신 파일을 다시 읽어 주세요.');
     if (code === 409 || code === 423) return failure('file-locked', '회사 엑셀이 잠겨 있거나 다른 저장 작업 중입니다. 잠시 후 최신 파일을 다시 읽어 주세요.');

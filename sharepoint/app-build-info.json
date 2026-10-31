@@ -1,0 +1,8 @@
+{
+  "application_sha256": "dbca612d7b21e4d8dd66f8afa2be4cdb380a3fc3f1e944bd2bf850789be5b763",
+  "application_bytes": 10747417,
+  "sharepoint_framework": "1.24.0",
+  "includes_offline_ocr": true,
+  "requires_graph_app_registration": false,
+  "private_company_data_embedded": false
+}

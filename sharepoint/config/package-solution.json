@@ -1,0 +1,41 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "tool-manager-sharepoint-client-side-solution",
+    "id": "de2e722f-393a-4a71-8fb1-9820f8bedfa7",
+    "version": "5.2.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": false,
+    "isDomainIsolated": false,
+    "developer": {
+      "name": "Tool Manager",
+      "websiteUrl": "https://github.com/geonwook-kang/Tool-management-",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": "Undefined-1.24.0"
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "툴 검교정 사진 자동 반영"
+      },
+      "longDescription": {
+        "default": "회사 SharePoint 페이지의 기존 로그인으로 툴 사진과 교정 날짜를 같은 공유 엑셀에 저장합니다."
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "Tool Manager SharePoint",
+        "description": "Installs the Tool Manager web part on this site",
+        "id": "029fb052-174a-47c0-9c49-4c84cb938ec1",
+        "version": "5.2.0.0"
+      }
+    ],
+    "title": "Tool Manager SharePoint"
+  },
+  "paths": {
+    "zippedPackage": "solution/tool-manager-sharepoint.sppkg"
+  }
+}

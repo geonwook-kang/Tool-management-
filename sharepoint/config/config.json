@@ -1,0 +1,16 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
+  "version": "2.0",
+  "bundles": {
+    "tool-manager-web-part": {
+      "components": [
+        {
+          "entrypoint": "./lib/webparts/toolManager/ToolManagerWebPart.js",
+          "manifest": "./src/webparts/toolManager/ToolManagerWebPart.manifest.json"
+        }
+      ]
+    }
+  },
+  "externals": {},
+  "localizedResources": {}
+}

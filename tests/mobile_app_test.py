@@ -162,6 +162,10 @@ def main():
             context.route("**/*", route)
             page.goto(url)
             ready(page)
+            # These cases exercise the optional external Microsoft 365 source.
+            # The default unconfigured phone now offers SharePoint installation.
+            page.locator("#source-mode").select_option("microsoft365")
+            ready(page)
             return context, page
 
         def connect_cloud(page):

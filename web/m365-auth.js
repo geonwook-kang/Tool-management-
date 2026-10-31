@@ -125,7 +125,7 @@
       if (response.invalid || !pending || typeof pending.state !== 'string' || !values.state || values.state !== pending.state || typeof pending.verifier !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(pending.verifier) || typeof pending.nonce !== 'string' || !Number.isFinite(pending.createdAt) || Date.now() - pending.createdAt > PENDING_TTL || pending.createdAt > Date.now() + 30000) throw failure('auth-state', '로그인 확인 정보가 만료되었거나 맞지 않습니다. 앱에서 다시 로그인을 시작해 주세요.');
       const expected = validateConfiguration(pending.configuration);
       if (!configuration || JSON.stringify(configuration) !== JSON.stringify(expected)) throw failure('auth-state', '로그인 도중 회사 앱 설정이 변경되었습니다. 다시 로그인해 주세요.');
-      if (values.error) throw failure(values.error === 'access_denied' ? 'auth-denied' : 'auth-response', values.error === 'access_denied' ? '회사 계정의 접근 권한이 허용되지 않았습니다. 회사 IT의 앱 권한 승인을 확인해 주세요.' : 'Microsoft 365 로그인을 완료하지 못했습니다. 회사 앱 설정과 로그인 권한을 확인해 주세요.');
+      if (values.error) throw failure(values.error === 'access_denied' ? 'auth-denied' : 'auth-response', values.error === 'access_denied' ? '회사 로그인이 취소되었거나 허용되지 않았습니다. 다시 로그인해 결과를 확인해 주세요.' : 'Microsoft 365 로그인을 완료하지 못했습니다. 회사 앱 설정과 로그인 권한을 확인해 주세요.');
       if (!values.code || values.code.length > 8192) throw failure('auth-response', '로그인 응답에 인증 코드가 없습니다. 다시 로그인해 주세요.');
       const ownGeneration = generation, controller = new AbortController();
       const timeout = global.setTimeout(() => controller.abort(), 30000);
@@ -137,7 +137,7 @@
           body: new URLSearchParams({ client_id: expected.clientId, grant_type: 'authorization_code', code: values.code,
             redirect_uri: expected.redirectUri, code_verifier: pending.verifier, scope: SCOPES.join(' ') }).toString()
         });
-        if (!result.ok) throw failure(result.status === 400 ? 'auth-consent' : 'auth-response', '회사 로그인 토큰을 받지 못했습니다. 앱의 SPA 회신 주소와 Microsoft Graph 위임 권한·회사 승인을 확인해 주세요.');
+        if (!result.ok) throw failure(result.status === 400 ? 'auth-consent' : 'auth-response', '회사 로그인 토큰을 받지 못했습니다. 앱의 SPA 회신 주소와 Microsoft Graph 위임 권한을 확인해 주세요.');
         responseData = await result.json();
       } catch (error) {
         if (error && error.code) throw error;

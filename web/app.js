@@ -3,6 +3,7 @@
 window.addEventListener('DOMContentLoaded',()=>{
 const $=id=>document.getElementById(id);
 document.body.classList.toggle('tool-mobile',ToolSources.inspect().mobile);
+document.body.classList.toggle('tool-sharepoint',ToolSources.inspect().hosted);
 const state={model:null,workbookName:'',photos:[],selectedId:null,busy:false,preparing:false,preparedResult:null,preparationError:'',revision:0,cancelRequested:false,source:{connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:0,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false}};
 const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>state.photos.filter(p=>p.review),automatic=()=>$('automatic-mode').checked;
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
@@ -17,8 +18,8 @@ const boundCloudLinkKey='tool-manager-bound-cloud-link-v1';
 const teamTarget=()=>teamConfig?.target||null;
 function fillAuthSettings(){const auth=ToolM365Auth.inspect();$('m365-client-id').value=auth.clientId||'';$('m365-tenant-id').value=auth.tenantId||'';$('m365-redirect').value=auth.redirectUri;$('m365-config').open=!auth.configured;}
 const sourceMode=()=>ToolSources.mode();
-const sourceLabel=()=>sourceMode()==='microsoft365'?'회사 공유 엑셀':sourceMode()==='device'?'이 기기의 엑셀 사본':'이 PC의 동기화 엑셀';
-const sourceSavedMessage=()=>sourceMode()==='microsoft365'?'회사 공유 원본에 날짜와 사진을 저장하고 내용을 확인했습니다.':sourceMode()==='device'?'이 기기의 엑셀 사본에 저장했습니다. 회사 공유 원본은 변경하지 않았습니다.':'이 PC의 연결된 엑셀에 저장했습니다. OneDrive 서버 반영은 OneDrive 동기화 상태를 확인하세요.';
+const sourceLabel=()=>sourceMode()==='sharepoint'?'SharePoint 공유 엑셀':sourceMode()==='microsoft365'?'회사 공유 엑셀':sourceMode()==='device'?'이 기기의 엑셀 사본':'이 PC의 동기화 엑셀';
+const sourceSavedMessage=()=>['microsoft365','sharepoint'].includes(sourceMode())?'회사 공유 원본에 날짜와 사진을 저장하고 내용을 확인했습니다.':sourceMode()==='device'?'이 기기의 엑셀 사본에 저장했습니다. 회사 공유 원본은 변경하지 않았습니다.':'이 PC의 연결된 엑셀에 저장했습니다. OneDrive 서버 반영은 OneDrive 동기화 상태를 확인하세요.';
 function rememberCloudLink(){
  const value=$('cloud-workbook-url').value.trim();if(!value)return '';
  const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password)throw new Error('정상적인 HTTPS 엑셀 공유 링크를 입력하세요.');
@@ -59,24 +60,28 @@ const pendingRows=()=>approved().filter(p=>!state.source.connected||!p.saved);
 function sourceFailure(error){const info=ToolSources.inspect();state.source.error=error.message;state.source.needsPermission=!!info.needsPermission;state.source.needsReconnect=!!info.needsReconnect;if(info.needsPermission||info.needsReconnect)state.source.connected=false;}
 
 function refreshSource(){
- const c=state.source,locked=state.busy||state.preparing||c.saving,mode=sourceMode(),cloud=mode==='microsoft365',device=mode==='device',auth=ToolM365Auth.inspect();
+ const c=state.source,locked=state.busy||state.preparing||c.saving,mode=sourceMode(),cloud=mode==='microsoft365',sp=mode==='sharepoint',hosted=ToolSources.inspect().hosted,device=mode==='device',auth=ToolM365Auth.inspect();
  for(const id of ['connect-onedrive','connect-team','reconnect-onedrive','disconnect-onedrive','retry-connected-save','source-mode','device-workbook','m365-signin','m365-signout','m365-save-config','m365-client-id','m365-tenant-id','cloud-workbook-url','share-team-link','copy-team-link','download-team-settings'])$(id).disabled=locked;
  $('source-mode').value=mode;$('m365-panel').hidden=!cloud;$('m365-setup-fields').hidden=!cloud;
+ $('sharepoint-panel').hidden=!sp;$('sharepoint-host-note').hidden=!sp||!hosted;$('sharepoint-install-links').hidden=!sp||hosted;
+ $('connection-settings').hidden=hosted;$('source-mode').disabled=locked||hosted;
+ $('sharepoint-host-note').textContent=c.error?'연결 결과를 확인한 뒤 다시 시도하세요.':c.connected?'현재 회사 로그인으로 연결됐습니다. 사진만 촬영하거나 선택하세요.':'현재 SharePoint 로그인으로 지정된 엑셀을 확인하고 있습니다.';
+ $('sharepoint-retry').hidden=!hosted||c.connected;$('sharepoint-retry').disabled=locked;
  $('team-summary').hidden=!cloud||!teamConfig;$('team-summary').textContent=teamConfig?'자동 저장 대상: '+(teamConfig.target?.name||teamConfig.name||'담당자가 지정한 공유 엑셀'):'';
  $('m365-status').textContent=auth.signedIn?'회사 계정 로그인됨'+(auth.account?.username?' · '+auth.account.username:''):auth.configured?(teamConfig?'회사 계정으로 로그인하면 지정된 엑셀에 자동 연결됩니다.':'회사 계정으로 로그인한 후 공유 엑셀을 연결하세요.'):'담당자가 공유한 직원용 링크로 열거나, 담당자 연결 설정을 완료해 주세요.';
  $('m365-signout').hidden=!auth.signedIn;$('m365-signin').hidden=auth.signedIn;
  $('connect-team').hidden=!cloud||!teamConfig||!auth.signedIn||c.connected;
  const shareReady=cloud&&c.connected&&!!ToolSources.inspect().target&&auth.configured;
  for(const id of ['share-team-link','copy-team-link','download-team-settings'])$(id).disabled=locked||!shareReady;
- $('source-help').textContent=cloud?(teamConfig?'엑셀 경로는 기억되어 있습니다. 회사 로그인 후 사진 촬영 또는 앨범 선택만 하세요.':'담당자가 한 번 연결한 후 직원용 링크로 공유하면 직원은 경로를 입력할 필요가 없습니다.'):device?'엑셀을 한 번 가져오면 이 기기에 보관합니다. 다음 사진도 이 사본에 자동 저장하며 회사 원본은 변경하지 않습니다.':'OneDrive로 동기화한 이 PC의 엑셀을 한 번 연결하면 사진만 추가할 수 있습니다.';
- $('source-save-note').textContent=cloud?'공유 원본은 인터넷 연결과 회사 계정의 수정 권한이 필요합니다. 다른 사람이 변경한 파일을 덮어쓰지 않습니다.':device?'이 기기의 앱 데이터가 삭제되면 사본도 지워질 수 있습니다. 엑셀 공유·다운로드로 보관할 수 있습니다.':'저장은 이 PC의 파일에 적용됩니다. 서버 반영 완료는 OneDrive에서 확인하세요.';
- $('connect-onedrive').textContent=cloud?'공유 엑셀 한 번 연결':device?'엑셀 가져와 이 기기에 보관':'OneDrive 엑셀 한 번 연결';
+ $('source-help').textContent=sp?(hosted?'이 페이지에 지정된 공유 엑셀을 사용합니다. 앱 ID 입력 없이 사진만 올리세요.':'SharePoint 사이트에 설치한 툴 매니저 페이지에서 현재 회사 로그인으로 사용할 수 있습니다.'):cloud?(teamConfig?'엑셀 경로는 기억되어 있습니다. 회사 로그인 후 사진 촬영 또는 앨범 선택만 하세요.':'담당자가 한 번 연결한 후 직원용 링크로 공유하면 직원은 경로를 입력할 필요가 없습니다.'):device?'엑셀을 한 번 가져오면 이 기기에 보관합니다. 다음 사진도 이 사본에 자동 저장하며 회사 원본은 변경하지 않습니다.':'OneDrive로 동기화한 이 PC의 엑셀을 한 번 연결하면 사진만 추가할 수 있습니다.';
+ $('source-save-note').textContent=cloud||sp?'실제 원본을 읽고 저장 결과를 확인한 뒤 완료로 표시합니다. 연결되지 않은 상태에서는 회사 파일을 변경하지 않습니다.':device?'이 기기의 앱 데이터가 삭제되면 사본도 지워질 수 있습니다. 엑셀 공유·다운로드로 보관할 수 있습니다.':'저장은 이 PC의 파일에 적용됩니다. 서버 반영 완료는 OneDrive에서 확인하세요.';
+ $('connect-onedrive').hidden=sp;$('connect-onedrive').textContent=cloud?'공유 엑셀 한 번 연결':device?'엑셀 가져와 이 기기에 보관':'OneDrive 엑셀 한 번 연결';
  $('reconnect-onedrive').hidden=!c.needsPermission;$('reconnect-onedrive').textContent=cloud?'회사 계정 다시 로그인':'권한 다시 연결';
  $('disconnect-onedrive').hidden=!(c.connected||c.needsPermission||c.needsReconnect);
  $('disconnect-onedrive').textContent=device?'이 기기 사본 삭제':'연결 해제';
  $('retry-connected-save').hidden=!c.error||!c.connected;$('download-backup').hidden=!c.hasBackup;
  const label=sourceLabel();
- $('connection-status').textContent=c.saving?label+'에 저장 중…':c.error?'자동 저장 확인 필요: '+c.error:c.connected?c.name+' · '+label+' 연결됨'+(c.savedAt?' · 저장 '+c.savedAt:''):c.needsPermission?c.name+' · '+(cloud?'회사 로그인이 필요합니다.':'파일 권한 재연결이 필요합니다.'):'연결된 엑셀이 없습니다.';
+ $('connection-status').textContent=c.saving?label+'에 저장 중…':c.error?'자동 저장 확인 필요: '+c.error:c.connected?c.name+' · '+label+' 연결됨'+(c.savedAt?' · 저장 '+c.savedAt:''):c.needsPermission?c.name+' · '+(cloud||sp?'회사 로그인 또는 파일 연결을 다시 확인해 주세요.':'파일 권한 재연결이 필요합니다.'):'연결된 엑셀이 없습니다.';
  $('connection-status').className='summary'+(c.error?' source-error':'');
  for(const el of $('review-panel').querySelectorAll('input,select,button'))el.disabled=state.busy||c.saving;
 }
@@ -96,13 +101,16 @@ async function adoptSource(snapshot,{reset=false}={}){
  }
  $('workbook-summary').textContent=`${c.name} · 연결 파일 · ${model.tools.length}개 툴`;$('workbook-badge').textContent='연결됨';
 }
-async function refreshConnectedSource(){const snapshot=await ToolSources.read();await adoptSource(snapshot);return snapshot;}
+async function refreshConnectedSource(){const snapshot=await ToolSources.read();await adoptSource(snapshot);const info=ToolSources.inspect();if(info.pendingCheckout)throw new Error(info.statusMessage||'이전 저장의 체크인 상태를 확인한 뒤 원본을 다시 읽어 주세요.');return snapshot;}
 async function connectSource(requestPermission=false,deviceFile=null){
  if(state.busy||state.preparing||state.source.saving)return;
  state.busy=true;refresh();let ok=false;
  try{
   const validate=async file=>ToolWorkbook.load(await file.arrayBuffer());
-  if(sourceMode()==='microsoft365'){
+  if(sourceMode()==='sharepoint'){
+   const context=window.ToolSharePointContext||{};
+   await ToolSources.connect({siteUrl:context.siteUrl,fileUrl:context.fileUrl,validate});
+  }else if(sourceMode()==='microsoft365'){
    configureM365();await ToolM365Auth.getAccessToken();
    await ToolSources.connect(teamTarget()?{target:teamTarget(),validate}:{shareUrl:rememberCloudLink(),validate});
   }else if(sourceMode()==='device'){
@@ -112,8 +120,10 @@ async function connectSource(requestPermission=false,deviceFile=null){
   else await ToolSources.connect({validate});
   const snapshot=await ToolSources.read();if(sourceMode()==='microsoft365')try{const link=rememberCloudLink();if(link)localStorage.setItem(boundCloudLinkKey,link);else localStorage.removeItem(boundCloudLinkKey);}catch(_){}invalidate();state.source.epoch++;state.source.error='';if(!requestPermission){state.source.savedAt='';state.source.saveCount=0;}await adoptSource(snapshot,{reset:!requestPermission});ok=true;
   if(sourceMode()==='microsoft365')rememberVerifiedTeam();
+  if(sourceMode()==='sharepoint')$('connection-settings').open=false;
   const info=ToolSources.inspect();state.source.hasBackup=!!(await ToolSources.takeBackup());
-  status(sourceLabel()+'을 연결했습니다. 이후에는 사진만 추가하세요.'+(info.persistent===false?' 다음 실행 때 다시 선택해야 할 수 있습니다.':''),'success');
+  if(info.pendingCheckout){ok=false;state.source.error=info.statusMessage||'이전 저장의 체크인 상태를 먼저 확인해 주세요.';status(state.source.error,'error');}
+  else status(sourceLabel()+'을 연결했습니다. 이후에는 사진만 추가하세요.'+(info.persistent===false?' 다음 실행 때 다시 선택해야 할 수 있습니다.':''),'success');
  }catch(e){sourceFailure(e);status('엑셀 연결 실패: '+e.message,'error');}
  finally{state.busy=false;refresh();render();}
  if(ok){
@@ -135,6 +145,11 @@ async function restoreSource(){
  }catch(e){status('이전 엑셀 연결을 복원하지 못했습니다. 다시 연결해 주세요. '+e.message,'error');}
  finally{state.restoring=false;state.busy=false;refresh();render();}
 }
+async function startSharePoint(){
+ state.restoring=false;state.busy=false;refresh();
+ if(!ToolSources.inspect().hosted){status('SharePoint 사이트의 툴 매니저 페이지를 열어 주세요. 설치 방법과 설치 파일은 아래 안내에 있습니다.');return;}
+ await connectSource(false);
+}
 async function retrySource(){
  if(state.busy||state.preparing||!state.source.connected)return;
  state.busy=true;invalidate();state.source.error='';refresh();
@@ -152,7 +167,7 @@ function refresh(){
  $('photo-list').innerHTML=state.photos.length?state.photos.map(p=>`<button class="photo-card ${p.id===state.selectedId?'selected':''}" data-id="${p.id}" ${state.busy?'disabled':''}><img src="${p.url}" alt=""><span class="info"><span class="filename">${esc(p.file.name)}</span><span class="photo-state ${p.review?'approved':''}">${p.saved?'✓ 연결 파일 저장됨':p.approval==='automatic'?'✓ 자동 반영':p.review?'✓ 보정 후 반영':engineFailed(p)?'⚠ 인식 엔진 실행 실패':p.result||p.error?'⚠ 확인 필요':'처리 대기'}</span></span></button>`).join(''):'<div class="empty">사진을 추가해 주세요.</div>';
  $('photo-list').querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>selectPhoto(b.dataset.id));
  for(const id of ['workbook','photos','automatic-mode','camera','take-photo','choose-photos'])$(id).disabled=state.busy||state.source.saving;
- $('photos').disabled=state.busy||state.source.saving||state.source.needsPermission||state.source.needsReconnect;
+ $('photos').disabled=state.busy||state.source.saving||state.source.needsPermission||state.source.needsReconnect||ToolSources.inspect().pendingCheckout||(sourceMode()==='sharepoint'&&!ToolSources.inspect().hosted&&!state.model);
  $('take-photo').disabled=$('choose-photos').disabled=$('photos').disabled;
  $('share-workbook').hidden=typeof navigator.share!=='function';$('share-workbook').disabled=state.busy||state.preparing||state.source.saving||!state.preparedResult;
  $('recognize-all').disabled=state.busy||!state.model||!state.photos.length;
@@ -279,7 +294,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:'5.1',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:'5.2',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
@@ -297,11 +312,12 @@ $('device-workbook').onchange=e=>connectSource(false,e.target.files[0]);
 $('share-workbook').onclick=async()=>{if(!state.preparedResult||state.busy||state.preparing||state.source.saving)return;const file=new File([state.preparedResult.blob],state.preparedResult.name,{type:state.preparedResult.blob.type});try{if(navigator.canShare?.({files:[file]}))await navigator.share({files:[file],title:'툴 검교정 엑셀'});else download(file,file.name);}catch(e){if(e.name!=='AbortError')status('엑셀 공유 실패: '+e.message+' 엑셀 저장 버튼으로 내려받을 수 있습니다.','error');}};
 $('m365-save-config').onclick=()=>{try{configureM365();status('회사 앱 연결 설정을 이 기기에 저장했습니다. 회사 계정으로 로그인하세요.','success');}catch(e){status(e.message,'error');}};
 $('m365-signin').onclick=companySignIn;
+$('sharepoint-retry').onclick=()=>connectSource(false);
 $('connect-team').onclick=()=>connectSource(false);
 $('share-team-link').onclick=shareTeamLink;$('copy-team-link').onclick=copyTeamLink;
 $('download-team-settings').onclick=()=>{try{const json=ToolTeamConfig.exportSettings(verifiedTeamConfig());download(new Blob([json],{type:'application/json'}),'team-settings.json');status('공용 설정 파일을 저장했습니다. 담당자가 GitHub 저장소의 docs/team-settings.json을 이 파일로 교체하면 새 휴대폰에서도 경로 입력 없이 연결됩니다.','success');}catch(e){status(e.message,'error');}};
 $('cloud-workbook-url').onchange=async()=>{try{const value=rememberCloudLink(),bound=localStorage.getItem(boundCloudLinkKey);if(sourceMode()==='microsoft365'&&(teamConfig||bound&&value!==bound)){await ToolGraphFile.disconnect();ToolTeamConfig.clear();teamConfig=null;localStorage.removeItem(boundCloudLinkKey);invalidate();resetPhotoConnection();state.model=null;Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',error:'',savedAt:'',hasBackup:false,epoch:state.source.epoch+1});refresh();render();status('공유 링크가 바뀌었습니다. 새 공유 엑셀을 연결한 후 사진을 처리합니다.');}}catch(e){status(e.message,'error');}};
-$('source-mode').onchange=async()=>{if(state.busy||state.preparing||state.source.saving)return;ToolSources.use($('source-mode').value);invalidate();state.source={connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:state.source.epoch+1,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false};state.model=null;resetPhotoConnection();if(sourceMode()==='microsoft365'&&teamConfig){await ToolGraphFile.disconnect();if(ToolM365Auth.inspect().signedIn)await connectSource(false);else{refresh();render();status('회사 계정으로 로그인하면 지정된 공유 엑셀에 자동 연결됩니다.');}}else await restoreSource();};
+$('source-mode').onchange=async()=>{if(state.busy||state.preparing||state.source.saving)return;ToolSources.use($('source-mode').value);invalidate();state.source={connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:state.source.epoch+1,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false};state.model=null;resetPhotoConnection();if(sourceMode()==='sharepoint')await startSharePoint();else if(sourceMode()==='microsoft365'&&teamConfig){await ToolGraphFile.disconnect();if(ToolM365Auth.inspect().signedIn)await connectSource(false);else{refresh();render();status('회사 계정으로 로그인하면 지정된 공유 엑셀에 자동 연결됩니다.');}}else await restoreSource();};
 $('m365-signout').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;if(state.photos.some(p=>!p.saved)&&!window.confirm('저장되지 않은 사진을 이 창에서 지우고 로그아웃할까요?'))return;try{await ToolGraphFile.disconnect({clearBackup:true});if((await ToolResume.peek())?.sameTab!==false)await ToolResume.clear();ToolM365Auth.signOut();for(const p of state.photos)URL.revokeObjectURL(p.url);state.photos=[];state.selectedId=null;state.model=null;invalidate();Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',error:'',savedAt:'',hasBackup:false,epoch:state.source.epoch+1});refresh();render();status('회사 계정에서 로그아웃하고 이 창의 작업 사진을 지웠습니다.');}catch(e){status(e.message,'error');}};
 
 $('remember-matches').onchange=()=>{try{localStorage.setItem('tool-manager-match-memory-enabled',String(memoryEnabled()));}catch(_){}refreshMemory();status(memoryEnabled()?'확인된 매칭을 기억하고 다음 사진에 활용합니다.':'다음에 추가하거나 다시 인식하는 사진부터 매칭 기억 활용을 끕니다.');};
@@ -321,7 +337,7 @@ $('confirm').onchange=()=>{if(!$('confirm').checked&&current()){current().review
 $('calculate-due').onclick=()=>{try{const t=state.model?.tools.find(t=>t.id===$('tool-select').value);if(!t||!$('last').value)throw new Error('툴 항목과 교정일을 입력해 주세요.');const months=ToolWorkbook.monthInterval(t.interval,t.cycle),due=months?ToolWorkbook.addMonths($('last').value,months):'';if(!due)throw new Error('엑셀 주기로 날짜를 계산할 수 없습니다.');$('due').value=due;changed();}catch(e){status(e.message,'error');}};
 $('review-form').onsubmit=saveReview;$('export').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;if(!state.preparedResult)await prepareResult();if(!state.preparedResult)return;download(state.preparedResult.blob,state.preparedResult.name);status('수정본 저장을 요청했습니다. 확인 필요 사진은 제외했습니다.','success');};
 $('download-log').onclick=()=>{const changes=approved().map(p=>{const u=p.review,t=p.saved||state.model.tools.find(t=>t.id===u.toolId)||{};return {photo:p.file.name,processing:p.approval,photoKind:u.photoKind||'calibration',updateDue:u.photoKind!=='smax'||u.updateDue===true,sheet:t.sheet,row:t.row,name:u.name,serial:u.serial,last:u.last,due:u.due,previousLast:t.last,previousDue:t.due};}),pending=state.photos.filter(p=>!p.review).map(p=>({photo:p.file.name,reasons:p.assessment?.reasons||[p.error||'대기 중']}));download(new Blob([JSON.stringify({workbook:state.workbookName,createdAt:new Date().toISOString(),changes,pending},null,2)],{type:'application/json'}),'툴_변경내역.json');};
-window.addEventListener('beforeunload',e=>{if(!authNavigation&&state.photos.some(p=>!p.saved)){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(!authNavigation&&(state.photos.some(p=>!p.saved)||ToolSources.inspect().pendingCheckout)){e.preventDefault();e.returnValue='';}});
 $('connect-onedrive').onclick=()=>sourceMode()==='device'?$('device-workbook').click():connectSource(false);$('reconnect-onedrive').onclick=()=>sourceMode()==='microsoft365'?companySignIn():connectSource(true);$('retry-connected-save').onclick=retrySource;
 $('disconnect-onedrive').onclick=async()=>{if(state.busy||state.preparing||state.source.saving)return;await ToolSources.disconnect();if(sourceMode()==='microsoft365'){ToolTeamConfig.clear();teamConfig=null;try{localStorage.removeItem(boundCloudLinkKey);localStorage.removeItem(cloudLinkKey);}catch(_){}$('cloud-workbook-url').value='';}$('connection-settings').open=true;invalidate();state.model=null;resetPhotoConnection();state.source.epoch++;Object.assign(state.source,{connected:false,needsPermission:false,needsReconnect:false,error:'',name:'',version:'',savedAt:''});refresh();render();status('자동 저장 연결을 해제했습니다. 새 저장 대상을 연결한 후 사진을 처리하세요.');};
 $('download-backup').onclick=async()=>{try{const backup=await ToolSources.takeBackup();if(!backup)throw new Error('보관된 백업이 없습니다.');download(new Blob([backup.bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),backup.name.replace(/\.xlsx$/i,'')+'_저장전백업.xlsx');}catch(e){status(e.message,'error');}};
@@ -345,6 +361,7 @@ async function restorePendingPhotos(){
 }
 async function restoreAfterLogin(){
  teamStartupError='';
+ if(ToolSources.inspect().hosted){await startSharePoint();return;}
  fillAuthSettings();
  try{$('cloud-workbook-url').value=localStorage.getItem(boundCloudLinkKey)||localStorage.getItem(cloudLinkKey)||'';}catch(_){}
  let invitation=null;
@@ -377,7 +394,7 @@ async function restoreAfterLogin(){
   // Another tab can change the persisted Graph selection. An explicit team
   // destination is connected directly, never restored from that shared slot.
   state.restoring=false;state.busy=false;refresh();render();status('회사 계정으로 로그인하면 지정된 공유 엑셀에 자동 연결됩니다.');
- }else await restoreSource();
+ }else if(sourceMode()==='sharepoint'){await startSharePoint();return;}else await restoreSource();
  if(loginError){status('회사 로그인 실패: '+loginError.message,'error');return;}
  if(sourceMode()!=='microsoft365'||!ToolM365Auth.inspect().signedIn)return;
  if(teamConfig&&!state.source.connected){await connectSource(false);return;}
@@ -393,6 +410,7 @@ async function restoreAfterLogin(){
 window.ToolApp={state,readWorkbook,addPhotos,selectPhoto,prepareResult,connectSource,retrySource,companySignIn};state.restoring=true;state.busy=true;refresh();
 restoreTask=restoreAfterLogin().catch(e=>{state.busy=false;state.restoring=false;refresh();render();status('이전 작업을 불러오지 못했습니다. '+e.message,'error');});
 window.addEventListener('hashchange',async()=>{
+ if(ToolSources.inspect().hosted)return;
  let incoming;try{incoming=ToolTeamConfig.takeInvitation();}catch(e){status(e.message,'error');return;}
  if(!incoming)return;
  if(state.busy||state.preparing||state.source.saving||state.photos.some(p=>!p.saved)){status('현재 사진 작업을 먼저 완료한 뒤 직원용 링크를 다시 열어 주세요. 저장 대상은 변경하지 않았습니다.','error');return;}
@@ -400,7 +418,13 @@ window.addEventListener('hashchange',async()=>{
  state.source={connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:state.source.epoch+1,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false};state.restoring=true;state.busy=true;refresh();render();
  restoreTask=restoreAfterLogin().catch(e=>{state.busy=false;state.restoring=false;refresh();render();status('직원용 연결을 적용하지 못했습니다. '+e.message,'error');});await restoreTask;
 });
-const missing=['ToolWorkbook','ToolSMAX','ToolOCR','ToolAutomation','ToolRuntime','ToolSources','ToolM365Auth','ToolGraphFile','ToolMobileFile','ToolResume','ToolTeamConfig'].filter(k=>!window[k]);
+if(ToolSources.inspect().hosted){
+ const context=window.ToolSharePointContext;
+ let parentOrigin='';try{parentOrigin=new URL(context.siteUrl).origin;}catch(_){}
+ const notify=()=>{if(parentOrigin&&parent!==window)parent.postMessage({type:'TOOL_SHAREPOINT_HEIGHT',height:Math.ceil(document.documentElement.scrollHeight)},parentOrigin);};
+ if(parentOrigin&&parent!==window){parent.postMessage({type:'TOOL_SHAREPOINT_READY'},parentOrigin);new ResizeObserver(notify).observe(document.body);notify();}
+}
+const missing=['ToolWorkbook','ToolSMAX','ToolOCR','ToolAutomation','ToolRuntime','ToolSources','ToolM365Auth','ToolGraphFile','ToolMobileFile','ToolResume','ToolTeamConfig','ToolSharePointFile'].filter(k=>!window[k]);
 if(missing.length)status('실행 파일이 완전하지 않습니다: '+missing.join(', ')+'. 전체 HTML을 다시 저장해 Chrome/Edge에서 여세요.','error');
 });
 })();

@@ -1,0 +1,34 @@
+{
+  "name": "tool-manager-sharepoint",
+  "version": "5.2.0",
+  "private": true,
+  "description": "Tool calibration photo manager using the signed-in SharePoint page session",
+  "engines": {
+    "node": ">=22.14.0 <23.0.0 || >=24.0.0 <25.0.0 || >=26.0.0 <27.0.0"
+  },
+  "scripts": {
+    "prepare-app": "node scripts/embed-app.mjs",
+    "build": "npm run prepare-app && npm test && heft build --clean --production && heft package-solution --production && node scripts/verify-package.mjs",
+    "clean": "heft clean",
+    "start": "npm run prepare-app && heft start --clean",
+    "test": "node tests/host-frame.test.cjs"
+  },
+  "dependencies": {
+    "@microsoft/sp-core-library": "1.24.0",
+    "@microsoft/sp-property-pane": "1.24.0",
+    "@microsoft/sp-webpart-base": "1.24.0",
+    "tslib": "2.3.1"
+  },
+  "devDependencies": {
+    "@microsoft/eslint-config-spfx": "1.24.0",
+    "@microsoft/eslint-plugin-spfx": "1.24.0",
+    "@microsoft/sp-module-interfaces": "1.24.0",
+    "@microsoft/spfx-heft-plugins": "1.24.0",
+    "@microsoft/spfx-web-build-rig": "1.24.0",
+    "@rushstack/heft": "1.3.2",
+    "@types/jest": "30.0.0",
+    "@types/webpack-env": "1.15.3",
+    "eslint": "9.37.0",
+    "typescript": "5.8.3"
+  }
+}

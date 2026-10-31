@@ -1,0 +1,23 @@
+/* Inspect the real official-toolchain package before handing it to a site. */
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const JSZip = require('../../web/vendor/jszip.min.js');
+const file = path.join(root, 'sharepoint/solution/tool-manager-sharepoint.sppkg');
+const bytes = await readFile(file), zip = await JSZip.loadAsync(bytes, {checkCRC32:true});
+const config = JSON.parse(await readFile(path.join(root, 'config/package-solution.json'), 'utf8'));
+const app = JSON.parse(await readFile(path.join(root, 'app-build-info.json'), 'utf8'));
+if (!config.solution.includeClientSideAssets || config.solution.isDomainIsolated || config.solution.webApiPermissionRequests?.length) throw new Error('Use packaged same-origin assets without extra API permission requests');
+for (const name of ['AppManifest.xml', '[Content_Types].xml', 'ClientSideAssets.xml']) if (!zip.file(name)) throw new Error('Invalid package: missing ' + name);
+const manifest = await zip.file('AppManifest.xml').async('string');
+if (/AppPermissionRequests|WebApiPermissionRequests/i.test(manifest) || !manifest.includes('<Title>Tool Manager SharePoint</Title>')) throw new Error('Unexpected app manifest permissions/title');
+const js = Object.keys(zip.files).filter(name => /^ClientSideAssets\/.*\.js$/.test(name));
+if (js.length !== 1) throw new Error('Expected exactly one fully packaged application bundle');
+const bundle = await zip.file(js[0]).async('string');
+if (!bundle.includes(app.application_sha256) || !bundle.includes('ToolSharePointFile') || !bundle.includes('tesseract-core')) throw new Error('Package does not contain the verified offline program');
+for (const value of ['share.philips.com','0716805829','46900004','file_00000000d2dc81f78a281486e82930b9']) if (bundle.includes(value)) throw new Error('Company input was embedded in the public package');
+console.log(JSON.stringify({package:path.basename(file),bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),application_sha256:app.application_sha256,application_bytes:app.application_bytes,client_side_assets:js,graph_api_permission_requests:0,packaged_assets:true,crc32_verified:true,actual_company_site_deployment_tested:false},null,2));

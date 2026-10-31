@@ -1,45 +1,47 @@
-# 툴 검교정 매니저 5.1 — 공용 엑셀 자동 연결
+# 툴 검교정 매니저 5.2 — SharePoint 회사 로그인으로 사용
 
-Android와 iPhone에서 촬영·앨범 업로드를 지원하는 설치형 웹앱(PWA)입니다. 담당자가 회사 Excel을 한 번 지정하면 직원은 경로·앱 ID를 입력하지 않고 **회사 로그인 → 사진 촬영·선택 → 같은 공유 원본에 자동 저장** 순서로 사용합니다. 인식은 기기에서 처리하며 기존 PC OneDrive 동기화 파일 연결과 기기 사본 모드도 제공합니다.
+담당자가 회사 SharePoint 사이트에 설치하고 관리 엑셀을 한 번 지정하면, 직원은 **게시된 SharePoint 페이지 → 회사 로그인 → 사진 촬영·앨범 선택 → 같은 엑셀 자동 저장** 순서로 사용합니다. SharePoint 설치판은 현재 페이지의 회사 로그인 세션을 사용하며 직원에게 Client ID·Tenant ID를 입력하라고 묻지 않습니다. 별도의 Entra 앱 등록이나 Microsoft Graph 권한 요청을 추가하지 않습니다.
 
-## 앱 열기와 설치
+## SharePoint 설치판 받기
 
-[휴대폰 앱 열기](https://geonwook-kang.github.io/Tool-management-/index.html)
+- [SharePoint 설치 파일 5.2 (.sppkg)](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-SharePoint-5.2.sppkg)
+- [설치 안내·소스 ZIP 5.2](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-SharePoint-5.2.zip)
+- [휴대폰에서도 볼 수 있는 네 단계 설치 안내](https://geonwook-kang.github.io/Tool-management-/sharepoint-install.html)
+- [자세한 SharePoint 설정 안내](docs/SharePoint-setup.md)
 
-GitHub Pages의 배포 성공과 위 주소의 앱 실행은 사용자가 제공한 화면에서 확인했습니다. 배포 소스는 `tool-manager-download` 브랜치의 `docs/`입니다. Android는 Chrome의 앱 설치/홈 화면 추가, iPhone은 Safari의 공유 → 홈 화면에 추가를 사용합니다. 첫 앱 저장이 끝나면 인식 엔진을 오프라인에서도 시작할 수 있습니다. 회사 공유 파일 저장에는 인터넷이 필요합니다.
+담당자가 PC에서 `.sppkg`를 **앱 카탈로그의 SharePoint용 앱(Apps for SharePoint)**에 업로드하고, 사용할 사이트에 앱을 추가합니다. 사이트 페이지를 편집해 **툴 검교정 매니저** 웹 파트를 추가하고, 연필 버튼의 **관리 엑셀** 설정에 같은 사이트의 `.xlsx` 링크를 한 번 입력합니다. 연결된 파일 이름을 확인하고 페이지를 게시한 뒤 **그 SharePoint 페이지의 링크**를 직원들에게 공유합니다.
 
-- [모바일 앱 게시용 ZIP 5.1](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Mobile-PWA-5.1.zip)
-- [PC용 HTML 프로그램 ZIP 5.1](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Desktop-5.1.zip)
-- [담당자·회사 IT용 Microsoft 365 연결 안내](docs/Microsoft365-setup.md)
+`.sppkg`를 일반 문서 폴더에 업로드하는 것으로는 앱이 설치되지 않습니다. 앱 카탈로그·앱 설치 메뉴는 회사와 사이트 구성에 따라 다르며, 문서 편집 권한만 있는 직원에게 설치 메뉴까지 보인다고 단정하지 않습니다. 사전에 승인이 필수라고 판단해 작업을 중단하는 단계는 없고 실제 설치·연결 결과에 맞춰 안내합니다.
 
-## 모든 직원이 같은 엑셀에 사진만 올리기
+## 직원의 휴대폰 사용
 
-담당자는 앱의 **담당자 연결 설정 · 직원용 링크**에서 회사의 공개 Client ID·Tenant ID와 Excel 공유 링크를 한 번 설정하고, 회사 계정으로 로그인해 실제 파일 연결을 확인합니다. 회사 Entra 앱에는 정확한 SPA 회신 주소와 `Files.ReadWrite.All`, `openid`, `profile` 위임 권한이 필요합니다. 비밀번호·클라이언트 비밀키는 앱에 넣지 않습니다.
+Android는 Chrome, iPhone은 Safari에서 게시된 회사 SharePoint 페이지를 엽니다. 회사 로그인 화면이 표시되면 평소 계정으로 로그인합니다. 지정 엑셀의 연결 상태를 확인하고 **사진 촬영** 또는 **앨범에서 선택**을 누르세요. 엑셀 경로·앱 ID 입력은 직원 화면에 표시하지 않습니다. 페이지는 홈 화면의 바로가기로 추가할 수도 있습니다. 사진은 기기에서 인식하며 회사 파일 저장에는 인터넷이 필요합니다.
 
-직원에게 연결을 전달하는 방법은 두 가지입니다.
+공개 [GitHub Pages 앱](https://geonwook-kang.github.io/Tool-management-/index.html)은 설치 파일과 안내, 기존 PC·기기 사본·고급 외부 연결 기능을 제공합니다. 공개 GitHub 주소는 회사 SharePoint와 다른 사이트이므로 회사 로그인 쿠키를 가져와 쓰지 않습니다. **별도 앱 ID 없이 공유 원본에 저장하는 설치판은 실제 SharePoint 페이지 안에서 실행합니다.** 이미 다른 회사 앱에 로그인돼 있다는 사실만으로 공개 앱의 파일 연결을 완료했다고 표시하지 않습니다.
 
-1. **직원용 링크:** 연결된 앱에서 **직원용 앱 링크 공유** 또는 **직원용 링크 복사**를 사용합니다. 직원이 링크를 열면 공개 앱 ID와 지정 문서 ID가 자동 설정됩니다. 회사 계정으로 로그인하면 같은 Excel에 자동 연결하며 경로를 입력하거나 파일을 선택할 필요가 없습니다.
-2. **설치한 앱에도 공용 경로 적용:** 담당자가 **공용 자동 연결 설정 받기**로 내려받은 `team-settings.json`을 GitHub의 `tool-manager-download` 브랜치 `docs/team-settings.json`에 덮어쓰고 커밋합니다. Actions 배포가 성공하면 일반 앱 주소와 새로 설치한 앱도 이 설정을 읽습니다. iPhone의 Safari와 홈 화면 앱은 설정 저장소가 다를 수 있으므로, 설치된 앱까지 입력 없이 사용하려면 이 공용 설정을 게시합니다.
+## 저장 동작과 실제 결과 확인
 
-기본 배포의 `team-settings.json`은 비활성 상태입니다. 실제 회사 앱 ID와 연결이 확인된 문서 ID를 넣은 설정이 게시되기 전에는 모든 휴대폰의 일반 앱 주소에 회사 파일이 미리 지정돼 있다고 간주하지 않습니다. 담당자는 앱에서 만든 파일을 그대로 사용하면 되며 문서 ID를 직접 찾을 필요가 없습니다.
+툴 라벨의 교정일자→Cal Last, 차기교정예정일자→Cal Next, 사진→Label Photo에 반영합니다. SMAX 화면은 Serial/Asset Number로 등록 툴을 찾고 사진→SMAX Tool Photo, 확인된 Calibration Due Date→Cal Next로 반영하며 Cal Last는 유지합니다. 셀·서식·다른 사진 보존과 인식 신뢰도·중복·충돌 판단은 기존 엔진을 사용합니다.
 
-직원용 링크와 공용 설정에는 공개 Client/Tenant ID, 대상 drive/item ID와 파일 이름만 포함합니다. 회사 공유 URL·로그인 토큰·Excel 내용·사진은 포함하지 않습니다. 실제 문서에 접근하고 수정하려면 로그인한 회사 계정에 해당 권한이 있어야 합니다. 새 창이나 토큰 만료 시에는 회사 로그인이 다시 필요할 수 있지만 지정 경로를 다시 입력하지는 않습니다.
+SharePoint 설치판은 같은 사이트의 REST 요청에 현재 브라우저의 회사 세션을 사용합니다. 다른 출처에 회사 쿠키나 인증 토큰을 보내지 않습니다. 저장 전 IndexedDB 백업을 완료하고 파일 버전을 대조합니다. SharePoint의 체크아웃으로 파일을 잠시 확보한 뒤 원본 내용이 바뀌지 않았는지 다시 확인하고 저장하며, 체크인과 저장 후 SHA256 검증까지 끝나야 완료로 표시합니다. 기존에 체크아웃된 파일이나 다른 사람의 초안은 변경하지 않습니다. 충돌·잠금·불확실한 저장 결과는 성공으로 표시하지 않고 자동 재전송하지 않습니다. 실제 401·403·404·412·423 결과에 맞춰 로그인·파일 상태·최신 원본 확인을 안내합니다.
 
-공용 설정은 앱 실행 때 최신 내용을 요청하며 서비스 워커에 캐시하지 않습니다. 인터넷이 없으면 기기에 기억한 설정을 사용할 수 있고 잘못된 설정은 적용하지 않습니다. 사진 인식·원본 저장 결과와 연결된 파일 이름을 화면에서 확인할 수 있습니다.
+## 기존 PC·공개 앱 연결 유지
 
-## 저장 동작
+- [PC용 HTML 프로그램 ZIP 5.2](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Desktop-5.2.zip)
+- [공개 PWA 게시용 ZIP 5.2](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Mobile-PWA-5.2.zip)
+- [고급 외부 앱의 Microsoft 365 연결 안내](docs/Microsoft365-setup.md)
 
-업로드한 사진은 교정일자→Cal Last, 차기교정예정일자→Cal Next, Label Photo/SMAX Tool Photo에 반영합니다. Graph의 ETag·If-Match로 다른 사용자의 변경을 확인하고, 저장 전 백업과 저장 후 파일 SHA 검증을 수행합니다. 결과가 불확실하면 자동 재전송하지 않습니다. 변경 없는 원본은 메모리에서 재사용해 큰 엑셀의 반복 다운로드를 줄입니다. 토큰은 메모리에만 보관하며 다운로드 주소·인증 응답·회사 파일을 서비스 워커 캐시에 넣지 않습니다.
+PC의 OneDrive 동기화 파일 모드와 기기 사본 모드는 계속 사용할 수 있습니다. 기기 사본은 회사 원본을 변경하지 않으며, PC 동기화 파일의 서버 반영 완료는 OneDrive에서 확인합니다. 기존 외부 Microsoft 365 모드는 공개 Client/Tenant ID와 OAuth 연결을 사용하는 고급 설정으로 유지합니다. 그 모드의 관리자 승인이 필요한지는 회사 정책과 실제 오류에 따라 다르며 항상 필수라고 단정하지 않습니다.
 
-로그인 이동 직전의 사진은 사용자가 로그인을 누른 경우에만 기기에 10분간 임시 보관합니다. 로그인 후 같은 공유 파일인지 확인하고 최신 원본으로 인식 근거를 다시 분석한 뒤 한 번만 복원합니다. 이름·시리얼 매칭 정책과 인식 신뢰도 기준은 기존 4.7을 유지합니다.
+기존 고급 모드의 직원용 링크·공용 `team-settings.json` 설정도 유지합니다. 기본 `team-settings.json`은 비활성 상태입니다. SharePoint 설치판은 그 파일이나 공개 앱의 OAuth 설정을 요구하지 않고 페이지에 지정한 엑셀을 직접 연결합니다.
 
-`이 기기에 보관한 엑셀 사본` 모드는 원본 클라우드 파일을 변경하지 않습니다. 앱 데이터 삭제에 대비해 사본을 공유/다운로드할 수 있습니다. PC의 동기화 파일 모드에서는 실제 서버 반영 완료를 OneDrive에서 확인합니다.
+## 검증 범위
 
-## 모바일 검증 범위
+같은 출처의 브라우저 화면과 세션 요청, 실제 사진 OCR·OOXML 날짜/사진 반영, 저장 전 백업과 버전 충돌을 자동 검사합니다. SharePoint 서버와 Microsoft OAuth·Graph의 응답은 통제된 테스트이며 실제 회사 테넌트 설치·다른 엔지니어의 계정·물리 휴대폰 실행을 확인한 결과는 아닙니다. 회사 공유 링크·엑셀·사진·실제 로그인 쿠키·토큰은 Git과 설치 패키지에 포함하지 않습니다.
 
-실제 사진과 인식 엔진·OOXML을 사용해 iPhone/Android 화면, 촬영·앨범 입력, 원본 저장·백업, 파일 충돌, PKCE 로그인 이동과 사진 복원을 검사했습니다. Microsoft OAuth·Graph 서버 응답은 통제된 테스트였으며, 실제 회사 로그인과 물리 휴대폰·Safari 엔진 검증은 완료하지 않았습니다. PWA 설치·오프라인·개인 데이터 캐시 제외·다중 창 업데이트·빈 프로그램 내보내기를 Chromium에서 확인했습니다. 실제 회사 Excel·사진·인증 토큰은 Git과 배포물에 포함하지 않습니다. 공용 연결 설정을 게시하는 경우에는 담당자가 선택한 공개 앱·문서 ID가 그 설정 파일에 포함됩니다.
+기존 PWA의 설치·오프라인·개인 데이터 캐시 제외·다중 창 업데이트·빈 프로그램 내보내기를 Chromium에서 검사합니다. SharePoint 페이지의 회사 원본 저장은 온라인 상태에서 사용합니다.
 
-빌드: `python web/package.py`, `python web/build_pwa.py --output-dir /workspace/outputs/mobile-app`. 모바일 테스트는 `tests/mobile_app_test.py`, `m365_auth_test.py`, `graph_file_test.py`, `mobile_file_test.py`, `resume_test.py`, `pwa_test.py`에 있습니다.
+빌드: `python web/package.py`, `python web/build_pwa.py --output-dir /workspace/outputs/mobile-app`. SharePoint 패키지 빌드는 `sharepoint/` 프로젝트의 안내를 따릅니다. `tests/sharepoint_file_test.py`, `tests/sharepoint_app_test.py`와 기존 모바일·OAuth·Graph·PWA 테스트로 확인합니다.
 
 ## 기존 PC 인식 기능과 기록
 

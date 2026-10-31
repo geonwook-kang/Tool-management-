@@ -1,0 +1,33 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "8d4112b0-348d-4b72-9592-61aa114df9a8",
+  "alias": "ToolManagerWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "supportedHosts": [
+    "SharePointWebPart",
+    "SharePointFullPage"
+  ],
+  "supportsFullBleed": true,
+  "supportsThemeVariants": false,
+  "preconfiguredEntries": [
+    {
+      "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+      "group": {
+        "default": "Advanced"
+      },
+      "title": {
+        "default": "툴 검교정 매니저"
+      },
+      "description": {
+        "default": "사진 촬영·업로드 후 공유 엑셀에 자동 저장"
+      },
+      "officeFabricIconFontName": "Camera",
+      "properties": {
+        "fileUrl": ""
+      }
+    }
+  ]
+}
