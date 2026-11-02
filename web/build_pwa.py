@@ -17,6 +17,18 @@ import tempfile
 ROOT = Path(__file__).resolve().parent
 
 
+def shared_entry(base):
+    """An ordinary HTTPS page keeps its workspace fragment on phone shortcuts.
+
+    Do not attach a fixed-start-URL manifest or old service-worker cache to
+    this entry: either could discard the staff member's workspace pointer.
+    """
+    marker = '<meta name="tool-manager-shared-entry" content="true"><script>document.documentElement.classList.add("tool-shared");</script>'
+    result = base.replace('<head>', '<head>' + marker, 1)
+    result = re.sub(r'<title>[^<]*</title>', '<title>툴 검교정 매니저 · 회사 공동 저장 6.0</title>', result, count=1)
+    return result.replace('CALIBRATION WORKSPACE · 사진 인식 · 6.0', 'CALIBRATION WORKSPACE · 회사 공동 저장 · 6.0', 1)
+
+
 def published_settings():
     """Keep a separately published target; never package sharing URLs/secrets."""
     path = ROOT.parent / 'docs/team-settings.json'
@@ -83,7 +95,7 @@ def main():
     assets = {'index.html': html.replace('__PWA_BUILD__', version).encode('utf-8'),
               'pwa.js': pwa.replace('__PWA_BUILD__', version).encode('utf-8'), **static}
     manifest = [{'path': './' + name, 'sha256': sha256(data).hexdigest(), 'bytes': len(data)} for name, data in sorted(assets.items())]
-    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json', 'team-settings.json', 'direct.html'}
+    allowed = set(assets) | {'service-worker.js', '.nojekyll', 'build-info.json', 'team-settings.json', 'direct.html', 'shared.html', 'shared-setup.html'}
     unexpected = [str(path.relative_to(output)) for path in output.rglob('*') if path.is_file() and str(path.relative_to(output)) not in allowed]
     if unexpected:
         raise ValueError('PWA output contains unrelated files; choose a separate empty directory: ' + ', '.join(unexpected))
@@ -97,11 +109,18 @@ def main():
     # The direct entry opens the standalone program and bypasses an older
     # installed shell's index cache. It needs no site installation or manifest.
     direct = base.replace('<head>', '<head><meta name="tool-manager-direct-entry" content="true">', 1)
+    direct = re.sub(r'<title>[^<]*</title>', '<title>툴 검교정 매니저 · 이 기기에 저장 6.0</title>', direct, count=1)
     (output / 'direct.html').write_text(direct, encoding='utf-8')
+    # A separate ordinary page gives every engineer the same cloud settings
+    # pointer, while leaving the existing local-copy entry available.
+    (output / 'shared.html').write_text(shared_entry(base), encoding='utf-8')
+    guide = ROOT / 'shared-setup.html'
+    if guide.exists():
+        (output / 'shared-setup.html').write_bytes(guide.read_bytes())
     script = worker.replace('__PWA_BUILD__', version).replace('/*__PWA_ASSETS__*/[]', json.dumps(manifest, separators=(',', ':')))
     (output / 'service-worker.js').write_text(script, encoding='utf-8')
     (output / '.nojekyll').write_text('', encoding='utf-8')
-    info = {'version': version, 'standalone_sha256': sha256(base.encode()).hexdigest(), 'direct_entry': './direct.html',
+    info = {'version': version, 'standalone_sha256': sha256(base.encode()).hexdigest(), 'direct_entry': './direct.html', 'shared_entry': './shared.html',
             'index_sha256': sha256(assets['index.html']).hexdigest(), 'shell': manifest,
             'private_data_included': False}
     (output / 'build-info.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

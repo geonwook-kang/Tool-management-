@@ -229,9 +229,12 @@
     const beforeWrite = await metadata(target);
     if (beforeWrite.eTag !== latest.eTag) throw failure('conflict', '저장 준비 중 다른 사용자가 공유 엑셀을 변경했습니다. 덮어쓰지 않았습니다. 최신 파일을 다시 읽어 주세요.');
     checkRevision(settings.verifyCurrent);
-    let writeStarted = false;
+    if (typeof settings.verifyDestination === 'function' && await settings.verifyDestination() !== true) throw failure('shared-destination-changed', '관리자가 공동 저장 대상을 변경했습니다. 최신 연결을 다시 확인해 주세요.');
+    checkRevision(settings.verifyCurrent);
+    let writeStarted = false, writeAccepted = false;
     try {
       const response = await graph(itemPath(target) + '/content', { method: 'PUT', headers: { 'Content-Type': MIME, 'If-Match': latest.eTag }, body: bytes, onAttempt: () => { checkRevision(settings.verifyCurrent); writeStarted = true; } });
+      writeAccepted = true;
       const written = await response.json();
       if (!written || written.id !== target.itemId) throw failure('verification-failed', '공유 엑셀 저장 결과를 확인하지 못했습니다. 원본을 다시 읽어 주세요.');
       etag(written.eTag);
@@ -239,9 +242,9 @@
       if (actual.hash !== desiredHash || actual.eTag !== written.eTag) throw failure('verification-failed', '저장 후 공유 파일 내용이 예상과 다릅니다. 자동 재시도하지 않습니다. 원본을 다시 읽어 주세요.');
       selected = Object.assign({}, target, { name: actual.file.name });
       Object.assign(status, { connected: true, name: actual.file.name, version: actual.version, uncertain: false, requiresSignIn: false, needsPermission: false, needsReconnect: false, statusMessage: '', lastSavedAt: new Date().toISOString() });
-      return { name: actual.file.name, version: actual.version, backupAvailable: true };
+      return { name: actual.file.name, version: actual.version, backupAvailable: true, ...(settings.returnSnapshot ? { bytes: actual.bytes.slice() } : {}) };
     } catch (error) {
-      const mapped = mapError(error), rejected = [401, 403, 404, 409, 412, 423, 429].includes(mapped.httpStatus);
+      const mapped = mapError(error), rejected = !writeAccepted && [401, 403, 404, 409, 412, 423, 429].includes(mapped.httpStatus);
       if (writeStarted && !rejected) { cachedSnapshot = null; status.uncertain = true; mapped.message = '저장 완료 여부를 확인할 수 없습니다. 자동 재시도하지 않습니다. 원본을 다시 읽어 확인해 주세요. 저장 전 백업은 기기에 보관되어 있습니다.'; }
       throw mapped;
     }

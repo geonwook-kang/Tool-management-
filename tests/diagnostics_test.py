@@ -81,7 +81,7 @@ def download_report(page, temporary, label, original, other):
     assert other.name.encode() not in raw
     report = json.loads(raw)
     assert set(report) == {"schema", "programVersion", "createdAt", "photo", "ocr", "assessment", "processing"}
-    assert report["schema"] == 1 and report["programVersion"] == "5.3"
+    assert report["schema"] == 1 and report["programVersion"] == "6.0"
     assert report["photo"]["entry"] == "original.jpg"
     assert report["photo"]["name"] == original.name
     assert report["photo"]["size"] == len(original.read_bytes())
@@ -139,7 +139,7 @@ def main():
             page.on("dialog", lambda dialog: dialog.accept())
             page.goto(url)
             settled(page)
-            assert page.locator("#download-diagnostics").count() == 1, "Build v5.3 before running diagnostics test"
+            assert page.locator("#download-diagnostics").count() == 1, "Build v6.0 before running diagnostics test"
             origin = urlsplit(url).netloc
             context.route("**/*", lambda route: (requests.append(route.request.url), route.abort())
                           if urlsplit(route.request.url).scheme in {"http", "https"}

@@ -114,7 +114,7 @@
   function photoOf(value, budget) {
     if (!plain(value) || !(value.file instanceof File)) throw failure('resume-photo-invalid', '로그인 전에 원본 사진 파일을 보관할 수 없습니다. 현재 화면에서 사진을 다시 확인해 주세요.');
     charge(budget, value.file.size);
-    const photo = fields(value, ['id', 'approval', 'error', 'photoKindOverride'], [], ['edited', 'manualEntry'], budget);
+    const photo = fields(value, ['id', 'approval', 'error', 'photoKindOverride'], [], ['edited', 'manualEntry', 'sharedConflict'], budget);
     photo.file = new File([value.file], value.file.name, { type: value.file.type, lastModified: value.file.lastModified });
     photo.image = imageOf(value.image, budget);
     const update = ['toolId', 'name', 'serial', 'last', 'due', 'photoKind'];
@@ -126,7 +126,7 @@
     } else photo.review = null;
     photo.assessment = plain(value.assessment) ? fields(value.assessment, ['toolId', 'name', 'serial', 'observedSerial', 'last', 'due', 'photoKind', 'matchMethod', 'dateMethod', 'ownerEnglish'], [], ['eligible', 'updateDue'], budget) : null;
     if (photo.assessment) { photo.assessment.reasons = stringList(value.assessment.reasons, budget); photo.assessment.warnings = stringList(value.assessment.warnings, budget); }
-    photo.saved = plain(value.saved) ? fields(value.saved, ['id', 'sheet', 'name', 'ownerBaseName', 'serial', 'asset', 'last', 'due', 'cycle', 'manufacturer', 'model', 'description', 'photoKind', 'version'], ['row', 'interval', 'months', 'photoCount', 'smaxPhotoCount'], ['numericSerial', 'hasSmaxPhotoColumn'], budget) : null;
+    photo.saved = plain(value.saved) ? fields(value.saved, ['id', 'sheet', 'name', 'ownerBaseName', 'serial', 'asset', 'last', 'due', 'cycle', 'manufacturer', 'model', 'description', 'photoKind', 'version', 'bindingIdentity', 'sourceName'], ['row', 'interval', 'months', 'photoCount', 'smaxPhotoCount'], ['numericSerial', 'hasSmaxPhotoColumn'], budget) : null;
     return photo;
   }
   function expired(record) { const now = Date.now(); return !record || !Number.isFinite(record.createdAt) || !Number.isFinite(record.expiresAt) || record.expiresAt - record.createdAt !== TTL || now >= record.expiresAt || now < record.createdAt - 60000; }
@@ -168,6 +168,7 @@
     const expected = expectedContext == null ? null : contextOf(expectedContext);
     return serial(() => atomic((store, record) => {
       if (expired(record)) { if (record) store.delete(KEY); return null; }
+      if (record.owner !== owner()) return null;
       if (expected && !sameContext(record.context, expected)) return null;
       store.delete(KEY); return { context: record.context, photos: record.photos, createdAt: record.createdAt, expiresAt: record.expiresAt };
     }));

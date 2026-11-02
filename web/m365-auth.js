@@ -1,8 +1,9 @@
 /* Microsoft 365 public-client authentication. Tokens never enter persistent storage. */
 (function (global) {
   'use strict';
-  const CONFIG_KEY = 'tool-manager-m365-config-v1';
-  const PENDING_KEY = 'tool-manager-m365-pkce-v1';
+  const sharedEntry = !!global.document.querySelector('meta[name="tool-manager-shared-entry"]');
+  const CONFIG_KEY = sharedEntry ? 'tool-manager-shared-auth-config-v1' : 'tool-manager-m365-config-v1';
+  const PENDING_KEY = sharedEntry ? 'tool-manager-shared-pkce-v1' : 'tool-manager-m365-pkce-v1';
   const PENDING_TTL = 10 * 60 * 1000;
   const AUTHORITY = 'https://login.microsoftonline.com';
   const GRAPH_SCOPE = 'https://graph.microsoft.com/Files.ReadWrite.All';
@@ -57,9 +58,12 @@
     return global.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   function random() { return base64url(global.crypto.getRandomValues(new Uint8Array(32))); }
-  async function signIn() {
+  async function signIn(options) {
     if (!supported()) throw failure('auth-unsupported', 'Microsoft 365 로그인은 HTTPS 앱에서 열어 주세요.');
     if (!configuration) throw failure('auth-config', '회사 IT에서 받은 앱 연결 정보를 먼저 저장해 주세요.');
+    if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) throw failure('auth-prompt', '회사 로그인 요청 형식을 확인해 주세요.');
+    const prompt = options && options.prompt !== undefined ? options.prompt : sharedEntry ? '' : 'select_account';
+    if (typeof prompt !== 'string' || !['', 'none', 'select_account', 'login', 'consent'].includes(prompt)) throw failure('auth-prompt', '회사 로그인 요청 형식을 확인해 주세요.');
     const verifier = random(), state = random(), nonce = random();
     const challenge = base64url(new Uint8Array(await global.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     const pending = { verifier, state, nonce, createdAt: Date.now(), configuration: Object.assign({}, configuration) };
@@ -68,11 +72,13 @@
       if (global.sessionStorage.getItem(PENDING_KEY) !== JSON.stringify(pending)) throw new Error('storage');
     } catch (_) { clearPending(); throw failure('auth-storage', '로그인 확인 정보를 임시 저장하지 못했습니다. 일반 브라우저 창에서 다시 시도해 주세요.'); }
     const url = new URL(AUTHORITY + '/' + encodeURIComponent(configuration.tenantId) + '/oauth2/v2.0/authorize');
-    url.search = new URLSearchParams({
+    const parameters = new URLSearchParams({
       client_id: configuration.clientId, response_type: 'code', response_mode: 'query',
       redirect_uri: configuration.redirectUri, scope: SCOPES.join(' '), state, nonce,
-      code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account'
-    }).toString();
+      code_challenge: challenge, code_challenge_method: 'S256'
+    });
+    if (prompt) parameters.set('prompt', prompt);
+    url.search = parameters.toString();
     lastError = ''; global.location.assign(url.href); return { redirecting: true };
   }
 
@@ -108,7 +114,8 @@
       const claims = JSON.parse(new TextDecoder().decode(bytes)), now = Date.now() / 1000;
       if (claims.aud !== pending.configuration.clientId || claims.nonce !== pending.nonce || !GUID.test(String(claims.tid || '')) || claims.iss !== AUTHORITY + '/' + String(claims.tid).toLowerCase() + '/v2.0' || !Number.isFinite(claims.exp) || claims.exp <= now || Number.isFinite(claims.nbf) && claims.nbf > now + 120) throw new Error('claims');
       if (GUID.test(pending.configuration.tenantId) && pending.configuration.tenantId !== String(claims.tid).toLowerCase()) throw new Error('tenant');
-      return { name: String(claims.name || '').slice(0, 200), username: String(claims.preferred_username || '').slice(0, 300), tenantId: String(claims.tid).toLowerCase() };
+      if (claims.oid !== undefined && (typeof claims.oid !== 'string' || !GUID.test(claims.oid))) throw new Error('object-id');
+      return { name: String(claims.name || '').slice(0, 200), username: String(claims.preferred_username || '').slice(0, 300), tenantId: String(claims.tid).toLowerCase(), ...(claims.oid ? { objectId: claims.oid.toLowerCase() } : {}) };
     } catch (_) { throw failure('auth-response', '회사 로그인 응답의 계정 확인 정보가 맞지 않습니다. 다시 로그인해 주세요.'); }
   }
   async function initialize() {
@@ -125,7 +132,12 @@
       if (response.invalid || !pending || typeof pending.state !== 'string' || !values.state || values.state !== pending.state || typeof pending.verifier !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(pending.verifier) || typeof pending.nonce !== 'string' || !Number.isFinite(pending.createdAt) || Date.now() - pending.createdAt > PENDING_TTL || pending.createdAt > Date.now() + 30000) throw failure('auth-state', '로그인 확인 정보가 만료되었거나 맞지 않습니다. 앱에서 다시 로그인을 시작해 주세요.');
       const expected = validateConfiguration(pending.configuration);
       if (!configuration || JSON.stringify(configuration) !== JSON.stringify(expected)) throw failure('auth-state', '로그인 도중 회사 앱 설정이 변경되었습니다. 다시 로그인해 주세요.');
-      if (values.error) throw failure(values.error === 'access_denied' ? 'auth-denied' : 'auth-response', values.error === 'access_denied' ? '회사 로그인이 취소되었거나 허용되지 않았습니다. 다시 로그인해 결과를 확인해 주세요.' : 'Microsoft 365 로그인을 완료하지 못했습니다. 회사 앱 설정과 로그인 권한을 확인해 주세요.');
+      if (values.error) {
+        const oauthError = /^[A-Za-z0-9_]{1,100}$/.test(values.error) ? values.error : 'unknown_error';
+        const interaction = ['interaction_required', 'login_required', 'consent_required', 'account_selection_required'].includes(oauthError);
+        const error = failure(interaction ? 'auth-interaction-required' : oauthError === 'access_denied' ? 'auth-denied' : 'auth-response', interaction ? '회사 계정으로 계속하려면 로그인을 확인해 주세요.' : oauthError === 'access_denied' ? '회사 로그인이 취소되었거나 허용되지 않았습니다. 다시 로그인해 결과를 확인해 주세요.' : 'Microsoft 365 로그인을 완료하지 못했습니다. 회사 앱 설정과 로그인 권한을 확인해 주세요.');
+        error.oAuthError = oauthError; throw error;
+      }
       if (!values.code || values.code.length > 8192) throw failure('auth-response', '로그인 응답에 인증 코드가 없습니다. 다시 로그인해 주세요.');
       const ownGeneration = generation, controller = new AbortController();
       const timeout = global.setTimeout(() => controller.abort(), 30000);

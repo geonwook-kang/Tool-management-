@@ -77,6 +77,9 @@ class Cloud:
             route.fulfill(status=int(self.mode[-3:]), body="{}", headers=headers)
             return
         if request.method == "GET":
+            if self.mode == "post-write-metadata401" and self.puts:
+                route.fulfill(status=401, body="{}", headers=headers)
+                return
             self.metadata_reads += 1
             if self.race_at_get == self.metadata_reads:
                 self.revision += 1
@@ -365,6 +368,28 @@ def main():
                 assert page.evaluate("async()=>await testHash((await ToolGraphFile.takeBackup()).bytes)") == sha256(cloud.original).hexdigest()
                 outcomes[mode] = "held_until_fresh_read"
                 context.close()
+
+            # A successful PUT followed by a metadata 401 has already changed
+            # the workbook. The later 4xx is a verification failure, never
+            # proof that Graph rejected the write or permission to retry it.
+            cloud, context, page = scenario("accepted_put_then_metadata401", "post-write-metadata401")
+            result = page.evaluate("async()=>await tryGraph(()=>ToolGraphFile.save({bytes:updatedBytes,expectedVersion:before.version}))")
+            state = page.evaluate("ToolGraphFile.inspect()")
+            assert not result["ok"] and result["code"] == "auth-required" and result["uncertain"]
+            assert state["uncertain"] and state["requiresSignIn"] and not state["connected"]
+            assert cloud.data == small_updated and len(cloud.puts) == 1
+            again = page.evaluate("async()=>await tryGraph(()=>ToolGraphFile.save({bytes:updatedBytes,expectedVersion:before.version}))")
+            assert again["code"] == "requires-read" and len(cloud.puts) == 1
+            assert page.evaluate("async()=>await testHash((await ToolGraphFile.takeBackup()).bytes)") == sha256(small_original).hexdigest()
+            cloud.mode = "normal"
+            downloads = sum(call["host"] == "download.example.test" for call in cloud.calls)
+            current = page.evaluate("async()=>{const current=await ToolGraphFile.read();return {hash:await testHash(current.bytes),version:current.version,inspect:ToolGraphFile.inspect()}}")
+            assert current["hash"] == sha256(small_updated).hexdigest() and not current["inspect"]["uncertain"]
+            assert sum(call["host"] == "download.example.test" for call in cloud.calls) == downloads + 1
+            allowed = page.evaluate("async version=>await tryGraph(()=>ToolGraphFile.save({bytes:originalBytes,expectedVersion:version}))", current["version"])
+            assert allowed["ok"] and len(cloud.puts) == 2 and cloud.data == small_original
+            outcomes["accepted_put_metadata401_held_until_verified_read"] = True
+            context.close()
 
             cloud, context, page = scenario("concurrent_clients")
             second = context.new_page()

@@ -47,7 +47,7 @@ def module_page(page, url):
           result:{...result,access_token:'SECRET_DO_NOT_STORE',configuration:{password:'SECRET_DO_NOT_STORE'}},
           assessment:{eligible:true,toolId:'tool:1',name:'홍길동',serial:'ABC12345',last:'2027-03-17',due:'2028-03-17',reasons:[],accessToken:'SECRET_DO_NOT_STORE'},
           review:{toolId:'tool:1',name:'홍길동',serial:'ABC12345',last:'2027-03-17',due:'2028-03-17',photoKind:'calibration',...image},approval:'automatic',edited:false,manualEntry:false,error:'',
-          saved:{id:'tool:1',name:'홍길동',serial:'ABC12345',last:'2027-03-17',due:'2028-03-17',photoKind:'calibration',version:'etag:already-saved',authorization:'SECRET_DO_NOT_STORE'},
+          saved:{id:'tool:1',name:'홍길동',serial:'ABC12345',last:'2027-03-17',due:'2028-03-17',photoKind:'calibration',version:'etag:already-saved',bindingIdentity:'["workspace-a","owner-a","drive-a","item-a"]',sourceName:'original-shared-a.xlsx',authorization:'SECRET_DO_NOT_STORE'},
           token:'SECRET_DO_NOT_STORE',handle:{kind:'file',secret:'SECRET_DO_NOT_STORE'},callback:()=>{},authConfig:{secret:'SECRET_DO_NOT_STORE'}};
       };
       window.rawQueue=()=>new Promise((resolve,reject)=>{const r=indexedDB.open('tool-management-auth-resume-v1',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('pending','readonly'),q=tx.objectStore('pending').get('queue');q.onsuccess=()=>resolve(q.result);tx.oncomplete=()=>db.close();tx.onerror=()=>reject(tx.error);};r.onerror=()=>reject(r.error);});
@@ -72,7 +72,7 @@ def main():
         page.locator('#photo').set_input_files(photo)
         saved = page.evaluate("""async()=>{
           const empty=await ToolResume.inspect(),p=await makePhoto();
-          const smax={...p,id:'photo:2',result:{text:'ABC12345',passes:[{text:'ABC12345',source:'smax-field-serial-7-0',confidence:94,smaxRole:'serial',smaxLabelVerified:true,smaxLabelText:'Serial/Asset Number',smaxLabelBBox:{x0:1,y0:2,x1:3,y1:4},smaxValueBBox:{x0:5,y0:6,x1:7,y1:8},words:[{text:'ABC12345',confidence:94,bbox:{x0:10,y0:11,x1:12,y1:13},lineBox:{x0:9,y0:10,x1:14,y1:15},credentials:'SECRET_DO_NOT_STORE'}],accessToken:'SECRET_DO_NOT_STORE'}]},review:null,saved:null};
+          const smax={...p,id:'photo:2',result:{text:'ABC12345',passes:[{text:'ABC12345',source:'smax-field-serial-7-0',confidence:94,smaxRole:'serial',smaxLabelVerified:true,smaxLabelText:'Serial/Asset Number',smaxLabelBBox:{x0:1,y0:2,x1:3,y1:4},smaxValueBBox:{x0:5,y0:6,x1:7,y1:8},words:[{text:'ABC12345',confidence:94,bbox:{x0:10,y0:11,x1:12,y1:13},lineBox:{x0:9,y0:10,x1:14,y1:15},credentials:'SECRET_DO_NOT_STORE'}],accessToken:'SECRET_DO_NOT_STORE'}]},review:null,saved:null,approval:null,edited:true,sharedConflict:true,error:'Another user changed this photo slot; explicit confirmation required.'};
           const result=await ToolResume.save({context:{...testContext,accessToken:'SECRET_DO_NOT_STORE'},photos:[p,smax]});
           const stored=await rawQueue(),json=JSON.stringify(stored,(key,value)=>value instanceof Blob?{blob:true,name:value.name}:ArrayBuffer.isView(value)?{typedArray:true,bytes:value.byteLength}:value);
           return {empty,result,peek:await ToolResume.peek(),inspect:await ToolResume.inspect(),json,fileHash:await testHash(await stored.photos[0].file.arrayBuffer()),imageHash:await testHash(stored.photos[0].image.photoBytes),fileModified:stored.photos[0].file.lastModified,alias:stored.photos[0].review.photoBytes===stored.photos[0].image.photoBytes};
@@ -92,6 +92,15 @@ def main():
         refused = other.evaluate("""async()=>{try{await ToolResume.save({context:testContext,photos:[await makePhoto()]});return 'accepted';}catch(e){return e.code;}}""")
         assert refused == 'resume-other-tab'
         outcome['other_tab_overwrite'] = refused
+        # Matching workbook IDs do not let another tab claim or consume the
+        # queue while its owner is returning from a company-login redirect.
+        cross_tab_claim = other.evaluate("""async()=>{
+          const before=await ToolResume.peek(),taken=await ToolResume.take(testContext),after=await ToolResume.peek();
+          return {sameTab:before.sameTab,taken:!!taken,pending:!!after,count:after&&after.count,unchanged:after&&after.createdAt===before.createdAt};
+        }""")
+        assert cross_tab_claim == {'sameTab':False,'taken':False,'pending':True,'count':2,'unchanged':True}
+        assert page.evaluate("async()=>{const p=await ToolResume.peek();return p.sameTab&&p.count===2}")
+        outcome['other_tab_take_preserves_owner_queue'] = cross_tab_claim
         # Reload recreates all module memory, as an authorization redirect does.
         module_page(page,url)
         restored = page.evaluate("""async()=>{
@@ -99,13 +108,15 @@ def main():
           const parsed=ToolOCR.parse(p.result.text,testTools,{confidence:p.result.confidence,passes:p.result.passes});
           return {peek,r:{context:r.context,count:r.photos.length,fileHash:await testHash(await p.file.arrayBuffer()),imageHash:await testHash(p.image.photoBytes),name:p.file.name,type:p.file.type,modified:p.file.lastModified,
             hasUrl:'url'in p,hasHandle:'handle'in p,saved:p.saved,approval:p.approval,review:p.review&&{serial:p.review.serial,hasImage:p.review.photoBytes===p.image.photoBytes},
-            assessment:ToolAutomation.assess({tools:testTools},parsed),metadata:q.result.passes[0]},after:await ToolResume.inspect(),again:await ToolResume.take(testContext)};
+            assessment:ToolAutomation.assess({tools:testTools},parsed),metadata:q.result.passes[0],held:{sharedConflict:q.sharedConflict,edited:q.edited,review:q.review,approval:q.approval,saved:q.saved,error:q.error}},after:await ToolResume.inspect(),again:await ToolResume.take(testContext)};
         }""")
         r = restored['r']
         assert restored['peek']['sameTab'] and r['count'] == 2 and r['fileHash'] == r['imageHash'] == original_hash
         assert r['modified'] == saved['fileModified'] and r['name'] == photo.name and r['type'] == 'image/jpeg'
         assert not r['hasUrl'] and not r['hasHandle'] and r['review']['hasImage']
         assert r['saved']['version'] == 'etag:already-saved' and r['approval'] == 'automatic'
+        assert r['saved']['bindingIdentity'] == '["workspace-a","owner-a","drive-a","item-a"]' and r['saved']['sourceName'] == 'original-shared-a.xlsx'
+        assert r['held'] == {'sharedConflict':True,'edited':True,'review':None,'approval':None,'saved':None,'error':'Another user changed this photo slot; explicit confirmation required.'}
         assert r['assessment']['eligible'] and r['assessment']['serial'] == 'ABC12345'
         assert r['metadata']['smaxLabelVerified'] and r['metadata']['smaxRole'] == 'serial' and r['metadata']['words'][0]['lineBox']['x1'] == 14
         assert restored['after'] == {'pending':False,'count':0} and restored['again'] is None

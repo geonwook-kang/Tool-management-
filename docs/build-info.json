@@ -1,8 +1,9 @@
 {
-  "version": "b54f25967775e9bb569b734c",
-  "standalone_sha256": "5ab38a2551496ade3b3ad17a757c4b544d9aa63adbb3c80f0964f89b22c7527f",
+  "version": "2821a259938050d78ce799f6",
+  "standalone_sha256": "eece6621721429c4fb9c7a8c63ec28214d1640fa46fc4f50c5e61b2c4fe9fdff",
   "direct_entry": "./direct.html",
-  "index_sha256": "51ab1a6cc3103c3b54b4a6315bb834d8c8938097b36852d89978a0b5fbb56245",
+  "shared_entry": "./shared.html",
+  "index_sha256": "49c1030248c3e1c71874a1a58e656e803ea04781b597f35265a1720d5a69718d",
   "shell": [
     {
       "path": "./icons/apple-touch-icon.png",
@@ -26,8 +27,8 @@
     },
     {
       "path": "./index.html",
-      "sha256": "51ab1a6cc3103c3b54b4a6315bb834d8c8938097b36852d89978a0b5fbb56245",
-      "bytes": 10753069
+      "sha256": "49c1030248c3e1c71874a1a58e656e803ea04781b597f35265a1720d5a69718d",
+      "bytes": 10839128
     },
     {
       "path": "./manifest.webmanifest",
@@ -36,7 +37,7 @@
     },
     {
       "path": "./pwa.js",
-      "sha256": "43d35eb8a7bc3269b2fbd6abab4cd9bc61f93c60d14daa65a313465000f51310",
+      "sha256": "34368cb111dd625ee684d89dd8ac5c46297ee4e3dbf6686e8557f889742c3e32",
       "bytes": 8513
     }
   ],
