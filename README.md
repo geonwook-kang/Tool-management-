@@ -1,62 +1,69 @@
-# 툴 검교정 매니저 6.0 — 같은 회사 엑셀에 공동 저장
+# 툴 검교정 매니저 7.0 — PC 마무리 버전
 
-**[공동 저장 프로그램 열기](https://geonwook-kang.github.io/Tool-management-/shared.html)** · **[담당자 최초 연결](https://geonwook-kang.github.io/Tool-management-/shared.html?setup=1)** · **[연결 방법](https://geonwook-kang.github.io/Tool-management-/shared-setup.html)**
+**[PC 프로그램 열기](https://geonwook-kang.github.io/Tool-management-/pc.html)** · **[PC용 ZIP 받기](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-PC-Final-7.0.zip)** · **[사용 안내](https://geonwook-kang.github.io/Tool-management-/pc-guide.html)**
 
-담당자가 노트북에서 SharePoint 원본을 한 번 지정한 뒤 **생성된 공동 작업 링크**를 직원에게 보냅니다. 직원은 휴대폰·PC에서 이 링크로 회사 로그인 후 사진만 올립니다. 각자 엑셀이나 앱 ID를 입력하지 않으며 모두 같은 원본을 사용합니다.
+PC에서 관리 엑셀을 한 번 연결하고 툴 라벨 사진·SMAX 캡처를 올립니다. 이름이 안 보이더라도 고유 시리얼로 등록된 툴을 찾으며, 마모로 일부 숫자가 지워졌을 때는 실제로 읽힌 번호 조각을 전체 엑셀 목록과 대조합니다. 이번 버전은 PC 작업을 중심으로 정리했습니다.
 
-[공동 저장 배포 ZIP 6.0](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-Shared-6.0.zip)도 제공합니다. 공동 저장은 위 HTTPS 주소에서 사용하며, 직원에게는 담당자가 생성한 공동 작업 링크를 보냅니다.
+## PC에서 사용
 
-## 담당자가 처음 한 번 설정
+1. Chrome 또는 Edge에서 [PC 프로그램](https://geonwook-kang.github.io/Tool-management-/pc.html)을 엽니다. ZIP을 받았다면 압축을 풀고 **Tool-Manager.html**을 여세요.
+2. 관리 엑셀 연결 버튼으로 사용할 **.xlsx 파일**을 한 번 선택하고 읽기·쓰기 권한을 허용합니다. PC의 일반 폴더 또는 OneDrive로 동기화한 회사 폴더를 선택할 수 있습니다.
+3. 연결된 파일 이름을 확인한 뒤 **사진 선택**으로 툴 사진·SMAX 캡처를 추가합니다. 여러 장도 가능합니다.
+4. 사진별 **저장 완료** 표시를 확인합니다. 자동 매칭 근거가 불충분한 사진만 항목과 날짜를 대조하세요.
 
-1. 회사 Microsoft Entra에 등록한 **공개 애플리케이션(클라이언트) ID**와 사용할 SharePoint **.xlsx 공유 링크**를 준비합니다. 클라이언트 ID는 프로그램의 등록 번호이며 OneDrive 이메일과 다릅니다. 비밀번호나 클라이언트 비밀키는 필요하지 않습니다.
-2. [담당자 연결 화면](https://geonwook-kang.github.io/Tool-management-/shared.html?setup=1)에서 클라이언트 ID를 입력합니다. 테넌트 ID는 선택 항목이며 비워 두면 `organizations`를 사용합니다. 단일 테넌트 앱이면 회사 테넌트 ID를 입력합니다.
-3. 설정을 저장하고 회사 계정으로 로그인한 뒤 SharePoint 엑셀 링크를 입력하여 공동 저장을 연결합니다.
-4. 화면에 생성된 **공동 작업 링크**를 복사하여 직원에게 보냅니다. 직원은 이 링크를 즐겨찾기나 홈 화면에 저장합니다.
+같은 브라우저는 연결한 파일을 기억합니다. 브라우저가 다시 권한을 요청하면 허용하세요. 파일 이동이나 브라우저 데이터 삭제 후에는 다시 연결해야 할 수 있습니다. PC 사진 인식에는 별도의 앱 ID·OCR API 키가 필요하지 않습니다. 엔진과 한글·영문 모델은 프로그램에 내장되어 있습니다.
 
-앱 등록의 SPA 회신 주소는 정확히 `https://geonwook-kang.github.io/Tool-management-/shared.html`입니다. 인증 코드 + PKCE와 Microsoft Graph **위임된 권한 `Files.ReadWrite.All`**을 사용하며 로그인 시 `openid`, `profile`도 요청합니다. 회신 주소에 `?setup=1`이나 링크의 `#workspace=…`는 넣지 않습니다. 회사 정책에 따라 등록·동의가 제한되어 실제로 차단되는 경우 회사 IT에 요청하세요. [단계별 안내](web/shared-setup.html)에 등록 위치와 설정값이 있습니다.
+## 이름 없이도 시리얼로 매칭
 
-## 직원이 휴대폰·PC에서 사용
+- 전체 시리얼이 등록된 한 툴을 식별하면 이름이 보이지 않아도 엑셀의 담당자와 연결합니다.
+- 일부 번호만 보이면 충분한 실제 번호 조각, 독립적인 반복 인식, 전체 등록 목록의 유일성, 날짜와 검교정 주기를 함께 확인합니다. 현재 파일의 모든 담당자와 툴을 대조하며 특정 사람의 예시를 정답으로 넣지 않습니다.
+- 짧거나 여러 툴에 공통인 번호, 서로 다른 명확한 번호·이름, 불분명한 날짜는 보류합니다. 지워진 숫자를 추측해 등록 시리얼을 바꾸지 않습니다.
+- 명확한 번호·날짜는 필요한 영역부터 읽고 근거가 충분하면 추가 인식을 끝냅니다. 다음 사진에는 인식 엔진을 재사용하며, 이름이 없다는 이유만으로 확인한 날짜를 반복해서 읽지 않습니다.
 
-1. 담당자가 보내 준 **공동 작업 링크**를 Android의 Chrome, iPhone의 Safari 또는 PC의 Chrome·Edge에서 엽니다.
-2. 요청되면 회사 계정으로 로그인합니다. 담당자가 지정한 원본이 자동으로 연결됩니다.
-3. **사진 촬영** 또는 **앨범에서 선택**으로 툴 라벨·SMAX 화면을 올립니다. 인식 근거가 일치하면 날짜와 사진이 같은 원본에 저장됩니다. 불확실한 결과만 확인을 요청합니다.
-4. 사진의 저장 완료 표시를 확인합니다. **최신 공동 엑셀 받기**로 서버에서 확인한 최신 파일을 내려받을 수 있습니다.
+마모·가림으로 실제 정보가 사라진 사진까지 자동 인식을 보장하지는 않습니다. 시리얼과 교정표가 함께 보이게 찍으면 도움이 됩니다. 처리 시간은 사진 상태와 PC 성능에 따라 달라집니다.
 
-Android의 Chrome 메뉴에서 **앱 설치·홈 화면에 추가**, iPhone의 Safari 공유 메뉴에서 **홈 화면에 추가**를 선택하면 아이콘으로 열 수 있습니다. 담당자가 보낸 공동 작업 링크에서 추가하세요. ChatGPT·Teams 안의 브라우저에서 촬영·로그인이 제한되면 Chrome·Safari로 링크를 여세요.
+제공된 원본 3장과 이름·시리얼 일부를 가린 시험 사진을 포함한 8가지 조건에서 실제 OCR부터 PC 파일 저장까지 모두 통과했습니다. 같은 테스트 PC에서 사진당 3.6–7.0초였으며, 동일한 앞자리 손상 사진은 기존 46.1초·미저장에서 6.9초·자동 저장으로 개선됐습니다. 변경 대상 외 352개 셀·서식과 59장 사진, 저장 전 백업을 확인했습니다. 이 측정에는 실제 회사 OneDrive 서버 동기화 시간은 포함하지 않습니다.
 
-**지정한 엑셀 연결은 유지되지만, 회사 로그인 세션은 만료될 수 있습니다.** 재로그인이 필요해도 파일 경로나 앱 ID를 다시 입력하지 않습니다. 새 기기나 브라우저 데이터를 지운 기기에서도 같은 공동 작업 링크를 사용합니다.
+## 날짜와 사진 반영
 
-## 공동 저장 위치와 경로 변경
-
-- 엑셀·사진은 담당자가 지정한 **SharePoint 원본**에 저장합니다. 직원에게는 해당 원본의 **편집 권한**이 있어야 하며, 프로그램이 원본 권한을 자동으로 부여하지는 않습니다.
-- 담당자의 회사 OneDrive에는 원본 위치를 담은 **작은 공동 설정 JSON**만 생성하고, 회사 내부에 읽기 전용으로 공유합니다. 담당자가 설정을 변경하고 직원은 이 설정을 읽습니다. 이 파일을 삭제하거나 공유를 해제하면 연결에 영향을 줍니다.
-- 담당자는 진행 중인 사진 작업을 마친 뒤 기존 공동 작업 링크의 담당자 설정에서 저장 대상을 바꿉니다. **직원이 사용하던 링크는 그대로 유지**됩니다. 앱은 연결·저장 전에 최신 설정을 확인합니다. 현재 창의 미저장 사진은 먼저 저장하거나 목록에서 제거해야 합니다.
-- 다른 툴에 대한 동시 변경은 최신 원본에 합쳐 저장합니다. 같은 사진 위치나 호환되지 않는 날짜 변경은 확인을 요청합니다. 저장 전 백업·파일 버전 검사와 저장 후 내용 확인을 사용하며 실패를 완료로 표시하지 않습니다.
-
-## 인식과 엑셀 반영
-
-툴 라벨의 **교정일자 → Cal Last**, **차기교정예정일자 → Cal Next**, 사진 → **Label Photo**에 반영합니다. SMAX 화면은 **Serial/Asset Number**로 툴을 찾고 사진을 **SMAX Tool Photo**에 넣습니다. 확인된 **Calibration Due Date → Cal Next**를 반영하며 SMAX의 작성·수정 일시로 Cal Last를 변경하지 않습니다.
-
-현재 엑셀의 전체 툴 목록에 이름·시리얼과 사진의 인식 근거를 대조합니다. 흐리거나 중복·충돌하는 결과는 확인이 필요합니다. 모든 촬영 사진이 항상 자동 매칭되는 것은 아닙니다. OCR은 기기에서 처리하고, 공유 원본 저장에는 인터넷과 회사 로그인이 필요합니다. 회사 엑셀·사진·개인 공유 URL·로그인 토큰을 공개 저장소나 배포 파일에 포함하지 않습니다.
-
-## 다른 사용 방식
-
-| 프로그램 | 자동 저장 대상 |
+| 사진의 내용 | 엑셀에 반영 |
 |---|---|
-| **6.0 공동 작업 링크** | 담당자가 지정한 같은 SharePoint 원본 |
-| [기기별 바로 실행](https://geonwook-kang.github.io/Tool-management-/direct.html) | 이 브라우저·기기의 엑셀 사본. 다른 직원이나 회사 원본과 자동 공유되지 않음 |
-| PC OneDrive 동기화 파일 연결 | PC에서 선택한 파일. 서버 동기화 완료는 OneDrive에서 확인 |
-| 기존 Microsoft 365 직접 연결·SharePoint 사이트 설치판 | 각 방식에서 실제 연결한 원본 |
+| 툴 라벨의 교정일자 | **Cal Last** |
+| 툴 라벨의 차기교정예정일자 | **Cal Next** |
+| 툴 라벨 사진 | **Label Photo** |
+| SMAX의 Serial/Asset Number | **Serial**과 대조해 툴 선택 |
+| SMAX 캡처 | **SMAX Tool Photo** |
+| SMAX의 Calibration Due Date | **Cal Next** |
 
-공동 작업에는 담당자가 생성한 **6.0 공동 작업 링크**를 사용하세요. 기존 기기 사본과 [Microsoft 365 개별 연결](docs/Microsoft365-setup.md), [SharePoint 사이트 설치판](docs/SharePoint-setup.md)은 별도 사용 방식으로 유지합니다.
+SMAX의 작성·수정 일시로 Cal Last를 변경하지 않습니다. 토크렌치·멀티미터와 다른 툴의 주기는 엑셀의 등록 값을 사용합니다. 변경 대상 이외의 셀·서식·사진은 보존합니다.
+
+## 저장 위치 확인
+
+**PC 파일 연결**은 사용자가 선택한 파일에 저장합니다. 저장 전 백업, 파일 변경 검사와 저장 후 내용 확인을 사용하며 저장 오류·잠금·충돌을 완료로 표시하지 않습니다.
+
+OneDrive 동기화 폴더를 선택했다면 회사 서버로 올리는 작업은 PC의 OneDrive가 수행합니다. 프로그램의 PC 파일 저장 완료와 OneDrive 동기화 완료는 각각 확인하세요. SharePoint 웹 링크만으로 PC 파일 선택을 대신할 수 없습니다.
+
+**이 기기에 엑셀 보관** 방식은 브라우저의 사본을 갱신합니다. 이 경우 회사 원본은 자동 변경되지 않으므로 처리한 파일을 내려받아 반영해야 합니다. 화면의 저장 위치와 완료 메시지로 구분할 수 있습니다.
 
 ## 개발과 검증
 
-빌드: `python web/package.py`, `python web/build_pwa.py --output-dir /workspace/outputs/mobile-app`. 공동 설정·권한, 원본 저장·충돌과 병합 검사는 `tests/shared_workspace_test.py`, `tests/shared_file_test.py`, `tests/shared_merge_test.py`에서 확인합니다. 기존 OCR·OOXML·기기 저장·모바일 화면 검사도 유지합니다.
+PC 빌드·패키징: `python web/package_pc.py --output-dir /workspace/outputs`.
+독립 빌드: `python web/build.py --entry pc --output /workspace/outputs/Tool-Manager-PC-Final.html`.
+사용 안내 원본: [PC-사용법.txt](web/PC-사용법.txt), [PC 안내 페이지](web/pc-guide.html).
 
-공동 저장 검사는 Microsoft Graph 응답을 통제한 브라우저 검사입니다. 실제 회사 계정 권한·동의와 물리 iPhone·Android에서의 로그인·촬영·저장은 배포 후 별도로 확인해야 합니다. 자동 브라우저 검사를 실제 회사 원본 저장 완료로 표시하지 않습니다.
+인식 정책·처리 순서 검사는 `tests/serial_only_policy_test.py`, `tests/pc_speed_pipeline_test.py`, 실제 OCR·엑셀 반영 검사는 `tests/pc_final_ocr_test.py`에서 확인합니다. 통제된 문자열로 매칭 정책을 검사한 결과와 실제 사진 OCR 결과는 구분합니다. 브라우저의 파일 저장 검사는 실제 회사 OneDrive 서버 동기화 완료를 뜻하지 않습니다. 회사 엑셀·원본 사진·개인 공유 URL·로그인 정보는 공개 배포 파일에 포함하지 않습니다.
 
-## 기존 PC 인식 기능과 기록
+## 기존 공동 저장·휴대폰 버전
+
+기존 [6.0 공동 저장 프로그램](https://geonwook-kang.github.io/Tool-management-/shared.html), [담당자 최초 연결](https://geonwook-kang.github.io/Tool-management-/shared.html?setup=1), [공동 저장 안내](https://geonwook-kang.github.io/Tool-management-/shared-setup.html)는 별도 버전으로 유지합니다. 휴대폰 연동은 이후에 진행할 수 있습니다.
+
+기존 공동 작업은 담당자가 지정한 SharePoint 원본과 생성된 공동 작업 링크를 사용합니다. 회사 앱 등록·로그인과 원본 편집 권한이 필요하며, PC 파일 연결 방식과 다릅니다. [Microsoft 365 개별 연결](docs/Microsoft365-setup.md), [SharePoint 사이트 설치판](docs/SharePoint-setup.md)도 별도 사용 방식입니다.
+
+## 이전 인식 기능과 검증 기록
+
+아래의 버전별 수치·사진 검증은 해당 버전에서 수행한 기록입니다. 현재 PC 버전의 모든 사진에 대한 처리 시간·인식률을 보장하는 수치가 아닙니다.
+
+
 
 ## 4.7 전체 등록 목록 매칭과 빠른 라벨 처리
 

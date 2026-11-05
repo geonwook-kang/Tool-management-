@@ -179,7 +179,8 @@ def run_case(browser, url, args, temporary, case):
                   if route.request.url.startswith(("http:", "https:")) else route.continue_())
     context.set_offline(True)
     baseline_hash = seed_file(page, baseline)
-    page.locator("#connect-onedrive").click()
+    entry = "#quick-workbook" if page.evaluate("ToolSources.inspect().pcEntry") else "#connect-onedrive"
+    page.locator(entry).click()
     page.wait_for_function("ToolApp.state.source.connected&&ToolApp.state.model")
     ready(page)
     began = time.monotonic()

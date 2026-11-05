@@ -62,7 +62,7 @@ def policy_checks(page, url, workbook):
             passes:partial(fragment.slice(0,2)+' '+fragment.slice(2,4)+' '+fragment.slice(4))});
         run('dropped_leading_zero_explicitly_partial',{passes:partial(serial.slice(1)),observed:serial.slice(1),eligible:true});
         run('owner_allows_five_digits_at_fifty_percent',{passes:partial(short),owner:true,observed:short,eligible:true});
-        run('five_digits_without_owner',{passes:partial(short),observed:short});
+        run('five_unique_digits_without_owner',{passes:partial(short),observed:short,eligible:true});
         // 4.5 adds the separately corroborated owner/four-digit path.
         run('four_digits_with_owner',{passes:partial(serial.slice(-4)),owner:true,observed:serial.slice(-4),
             eligible:true,method:'owner-partial-serial'});
@@ -125,8 +125,8 @@ def policy_checks(page, url, workbook):
         run('fragment_that_is_another_tools_full_serial_is_not_partial',{
             owner:true,tools:[...model.tools,{...collision,serial:fragment}]});
         const longSerial='A1B2C3D4E5F6',longTools=model.tools.map(tool=>tool.id===target.id?{...tool,serial:longSerial}:tool);
-        run('six_digits_below_sixty_percent_are_insufficient',{
-            passes:partial(longSerial.slice(0,6)),tools:longTools,observed:longSerial.slice(0,6),expectedSerial:longSerial});
+        run('half_of_a_longer_unique_serial_without_owner',{
+            passes:partial(longSerial.slice(0,6)),tools:longTools,observed:longSerial.slice(0,6),expectedSerial:longSerial,eligible:true});
         run('longer_alphanumeric_contiguous_partial_is_supported',{
             passes:partial(longSerial.slice(0,8)),tools:longTools,observed:longSerial.slice(0,8),expectedSerial:longSerial,eligible:true});
         run('owner_supports_half_of_longer_alphanumeric_serial',{
@@ -137,8 +137,8 @@ def policy_checks(page, url, workbook):
             passes:[...partial().slice(0,1),pass('Serial: '+serial,'identity-crop-full')],eligible:true,method:'serial'});
         run('full_and_partial_from_same_source_are_not_independent',{
             passes:[pass('Serial: '+fragment+'\\nSerial: '+serial,'identity-crop-full')]});
-        run('full_read_does_not_resolve_short_partial',{
-            passes:[pass('Serial: '+short,'identity-crop-partial'),pass('Serial: '+serial,'identity-crop-full')],observed:short});
+        run('independent_full_read_confirms_five_digit_fragment',{
+            passes:[pass('Serial: '+short,'identity-crop-partial'),pass('Serial: '+serial,'identity-crop-full')],observed:short,eligible:true,method:'serial'});
         run('full_read_does_not_resolve_conflicting_fragment',{
             passes:[...partial().slice(0,1),pass('Serial: '+serial+'\\nSerial: 999999999','identity-crop-full')]});
         return cases;
@@ -191,7 +191,8 @@ def connected_check(browser, url, args, temporary, scenario):
     page.goto(url)
     page.wait_for_function("window.ToolApp&&!ToolApp.state.busy")
     original_hash = seed_file(page, args.workbook)
-    page.locator("#connect-onedrive").click()
+    entry = "#quick-workbook" if page.evaluate("ToolSources.inspect().pcEntry") else "#connect-onedrive"
+    page.locator(entry).click()
     page.wait_for_function("ToolApp.state.source.connected&&!!ToolApp.state.model")
     ready(page)
     page.evaluate("""({scenario,serial,dates})=>{

@@ -5,12 +5,22 @@ const $=id=>document.getElementById(id);
 document.body.classList.toggle('tool-mobile',ToolSources.inspect().mobile);
 document.body.classList.toggle('tool-sharepoint',ToolSources.inspect().hosted);
 document.body.classList.toggle('tool-shared',ToolSources.inspect().sharedEntry);
+document.body.classList.toggle('tool-pc',ToolSources.inspect().pcEntry);
+if(ToolSources.inspect().pcEntry){
+ $('take-photo').hidden=true;$('choose-photos').textContent='사진 선택 · 여러 장';
+ document.querySelector('main>p.muted').textContent='CALIBRATION WORKSPACE · PC 마무리 버전 7.0';
+ document.querySelector('h1').textContent='시리얼로 찾고, 엑셀에 자동 저장.';
+ document.querySelector('h1+p').textContent='이름 없이 시리얼만 있어도 찾습니다. 일부가 지워진 번호는 남은 숫자를 전체 툴 목록과 대조합니다.';
+ document.querySelector('header .tag').textContent='PC · 오프라인 사진 인식';
+ document.querySelector('.mobile-capture h2').textContent='02 툴 사진 · SMAX 화면 올리기';
+ document.querySelector('.mobile-capture p').textContent='시리얼과 교정일·차기일이 보이는 사진을 선택하세요. 이름 표지는 선택 사항입니다.';
+}
 const state={model:null,sourceBytes:null,workbookName:'',photos:[],selectedId:null,busy:false,preparing:false,preparedResult:null,preparationError:'',revision:0,cancelRequested:false,source:{connected:false,needsPermission:false,needsReconnect:false,name:'',version:'',epoch:0,saving:false,error:'',savedAt:'',saveCount:0,hasBackup:false}};
 const current=()=>state.photos.find(p=>p.id===state.selectedId), approved=()=>state.photos.filter(p=>p.review),automatic=()=>$('automatic-mode').checked;
 const engineFailed=p=>!!(p&&!p.review&&(p.result?.engineFailure||p.result?.errorCode==='engine-init'||p.result?.code==='engine-init'));
 const status=(msg,kind='')=>{$('status').textContent=msg;$('status').className=kind;};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const methods={'numeric-cell-serial':'엑셀 숫자 형식의 시리얼 일치',serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','owner-partial-serial':'이름·부분 번호·엑셀 교정 주기 일치','smax-serial':'SMAX 등록 시리얼 일치','smax-due':'SMAX 차기 교정일 → Cal Next','unchanged-dates':'교정 날짜 유지','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
+const methods={'numeric-cell-serial':'엑셀 숫자 형식의 시리얼 일치',serial:'시리얼 번호 일치',name:'이름 일치','name-cycle':'이름·엑셀 교정 주기 일치','partial-serial':'부분 시리얼·엑셀 교정 주기 일치','partial-serial-groups':'지워진 번호 조각·엑셀 교정 주기 일치','owner-partial-serial':'이름·부분 번호·엑셀 교정 주기 일치','smax-serial':'SMAX 등록 시리얼 일치','smax-due':'SMAX 차기 교정일 → Cal Next','unchanged-dates':'교정 날짜 유지','remembered-serial':'기억한 시리얼 인식 패턴','remembered-name':'기억한 이름 인식 패턴',labelled:'교정일자 → Cal Last · 차기교정예정일자 → Cal Next','repeated-dates':'두 번 일치한 날짜','calculated-cycle':'엑셀 주기로 계산'};
 const photoKind=p=>p?.photoKindOverride||p?.draft?.photoKind||p?.review?.photoKind||p?.assessment?.photoKind||(/smax/i.test(p?.result?.documentType||'')?'smax':'calibration');
 const photoSlot=p=>photoKind(p)==='smax'?'SMAX Tool Photo':'Label Photo';
 let seq=0,timer,restoreTask=Promise.resolve(),authNavigation=false,teamConfig=null,teamStartupError='',queuedInvitation=null;
@@ -71,9 +81,11 @@ function refreshSource(){
  if(ToolSources.inspect().directEntry)for(const option of $('source-mode').options)if(!['device','desktop'].includes(option.value)){option.hidden=true;option.disabled=true;}
  $('quick-start').hidden=hosted||!['device','desktop'].includes(mode);
  $('quick-workbook').disabled=locked;$('quick-workbook').textContent=c.connected?'엑셀 바꾸기':'관리 엑셀 처음 한 번 선택';
+ if(ToolSources.inspect().pcEntry)$('quick-workbook').textContent=c.connected?'연결 엑셀 변경':c.needsPermission?'기억한 엑셀의 저장 권한 허용':'관리 엑셀 연결 · 처음 한 번';
  $('quick-clear-workbook').hidden=!device||!c.connected;$('quick-clear-workbook').disabled=locked;
  $('quick-download-workbook').hidden=!device||!c.connected;$('quick-download-workbook').disabled=locked;
  $('quick-summary').textContent=c.error?'엑셀 상태를 확인해 주세요: '+c.error:c.connected?c.name+(device?' · 이 기기에 보관됨 · 다음부터 사진만 올리세요.':' · 이 PC의 파일에 연결됨 · 사진을 올리면 반영합니다.'):device?'엑셀을 한 번 선택하면 이 기기에 기억합니다. 다음 실행부터 사진만 촬영하거나 선택하세요.':'관리 엑셀을 한 번 선택하고 사진을 올리세요.';
+ if(ToolSources.inspect().pcEntry&&c.needsPermission)$('quick-summary').textContent=(c.name||'기억한 관리 엑셀')+' · 저장 권한을 허용하면 같은 파일로 이어서 작업합니다.';
  $('quick-save-note').textContent=device?'처리한 엑셀 사본은 이 기기에 자동 저장됩니다. 회사 SharePoint 원본은 변경하지 않습니다.':'이 PC에서 선택한 파일에 저장합니다. OneDrive 동기화 파일을 선택했다면 서버 반영은 OneDrive에서 확인하세요.';
  $('sharepoint-panel').hidden=!sp;$('sharepoint-host-note').hidden=!sp||!hosted;$('sharepoint-install-links').hidden=!sp||hosted;
  $('connection-settings').hidden=hosted||shared;$('source-mode').disabled=locked||hosted||shared;
@@ -222,6 +234,7 @@ function render(){
  const ownerReadings=p.result?.smaxEvidence?.ownerEnglish;
  const english=p.assessment?.ownerEnglish||(Array.isArray(ownerReadings)?ownerReadings.find(r=>r.value)?.value:typeof ownerReadings==='string'?ownerReadings:'')||'';
  $('photo-kind-note').textContent=`저장 위치: ${photoSlot(p)}`+(smax&&english?` · SMAX 담당자: ${english} · 등록 담당자: ${d.name||'시리얼 확인 후 연결'}`:'');
+ if(p.assessment?.observedSerial)$('photo-kind-note').textContent+=' · 사진에서 읽은 번호: '+p.assessment.observedSerial+' → 엑셀 등록 번호: '+p.assessment.serial;
  $('confirm-description').textContent=smax?'사진의 시리얼·SMAX 저장 위치와 선택한 차기일 반영 여부를 확인했습니다.':'사진과 보정한 이름·시리얼·날짜가 일치함을 확인했습니다.';
  $('draft-note').textContent=p.approval==='automatic'?(smax?`✓ SMAX Tool Photo 자동 반영 · ${d.updateDue?'Cal Next: '+d.due:'교정 날짜 유지'}`:`✓ Cal Last: ${p.draft.last} · Cal Next: ${p.draft.due} · 사진 자동 반영`):p.review?'✓ 보정한 값을 반영했습니다.':'';
  $('ocr-warning').textContent=p.error||(p.approval==='automatic'?`자동 식별: ${methods[p.assessment.matchMethod]||p.assessment.matchMethod} · ${methods[p.assessment.dateMethod]||p.assessment.dateMethod}`:(p.assessment?.reasons||p.result?.warnings||[]).join('\n')||'불확실한 사진만 보정하세요.');
@@ -334,7 +347,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:'6.0',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:ToolSources.inspect().pcEntry?'7.0':'6.0',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
@@ -351,7 +364,7 @@ $('camera').onchange=e=>addPhotos([...e.target.files]);$('take-photo').onclick=(
 $('device-workbook').onchange=e=>connectSource(false,e.target.files[0]);
 $('quick-workbook').onclick=()=>{
  if(state.busy||state.preparing||state.source.saving)return;
- if(sourceMode()==='desktop'&&ToolConnectedFile.inspect().supported){connectSource(false);return;}
+ if(sourceMode()==='desktop'&&ToolConnectedFile.inspect().supported){connectSource(ToolSources.inspect().pcEntry&&state.source.needsPermission);return;}
  ToolSources.use('device');refresh();$('device-workbook').value='';$('device-workbook').click();
 };
 $('quick-download-workbook').onclick=async()=>{if(sourceMode()!=='device'||state.busy||state.preparing||state.source.saving)return;try{const snapshot=await ToolMobileFile.read();download(new Blob([snapshot.bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),snapshot.file.name);status('이 기기에 보관한 엑셀의 다운로드를 요청했습니다. 회사 공유 원본은 변경하지 않았습니다.','success');}catch(e){status(e.message,'error');}};

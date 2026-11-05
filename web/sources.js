@@ -2,11 +2,12 @@
 (function (global) {
   'use strict';
   const directEntry = !!global.document.querySelector('meta[name="tool-manager-direct-entry"]');
+  const pcEntry = !!global.document.querySelector('meta[name="tool-manager-pc-entry"]');
   const sharedEntry = !!global.document.querySelector('meta[name="tool-manager-shared-entry"]');
-  const key = sharedEntry ? 'tool-manager-shared-source' : directEntry ? 'tool-manager-direct-source' : 'tool-manager-workbook-source';
+  const key = pcEntry ? 'tool-manager-pc-source-v1' : sharedEntry ? 'tool-manager-shared-source' : directEntry ? 'tool-manager-direct-source' : 'tool-manager-workbook-source';
   const mobile = /Android|iPhone|iPad|iPod/i.test(global.navigator.userAgent) || (global.navigator.maxTouchPoints > 1 && /Macintosh/i.test(global.navigator.userAgent));
   const hosted = !!global.ToolSharePointContext;
-  let mode = mobile ? 'device' : 'desktop';
+  let mode = pcEntry ? 'desktop' : mobile ? 'device' : 'desktop';
   try { const saved = global.localStorage.getItem(key); if ((directEntry ? ['desktop', 'device'] : ['desktop', 'microsoft365', 'device', 'sharepoint']).includes(saved)) mode = saved; } catch (_) {}
   if (hosted) mode = 'sharepoint';
   else if (sharedEntry) mode = 'shared';
@@ -23,7 +24,7 @@
   }
   function inspect() {
     const backend = adapter();
-    return Object.assign({ connected: false, persistent: false }, backend && backend.inspect(), { sourceMode: mode, mobile, hosted, directEntry, sharedEntry });
+    return Object.assign({ connected: false, persistent: false }, backend && backend.inspect(), { sourceMode: mode, mobile, hosted, directEntry, sharedEntry, pcEntry });
   }
   function call(name, args) {
     const backend = adapter();

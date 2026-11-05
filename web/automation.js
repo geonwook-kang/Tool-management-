@@ -113,9 +113,12 @@
         && normalizeSerial(proof.serial) === normalizeSerial(target.serial) && high(proof.confidence));
       return exact ? actualSources(normalizeSerial(target.serial)) : [];
     }
-    // Both selection and conflict handling use this one global candidate rule.
-    // No characters are changed: a fragment must be a literal contiguous part
-    // of precisely one serial in the entire workbook, including disposed tools.
+    const distinctive = (value) => new Set(value).size >= 3;
+    const calendarNumber = (value) => /^20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])$/.test(value);
+    // Both selection and conflict handling use the entire registered list.
+    // A worn label may expose only five characters; two actual readings and
+    // a unique literal match are required. Calibration cycles never break a
+    // tie, including one with a disposed or differently owned tool.
     function resolvePartialSerial(value, options) {
       const fragment = normalizeSerial(value), settings = options || {};
       if (!fragment || tools.some((candidate) => normalizeSerial(candidate.serial) === fragment)) return null;
@@ -125,8 +128,7 @@
       });
       if (candidates.length !== 1) return null;
       const target = candidates[0], canonical = normalizeSerial(target.serial);
-      const withOwner = !settings.exactConfirmation && exactOwner(target);
-      if (fragment.length < (withOwner ? 5 : 6) || fragment.length / canonical.length < (withOwner ? 0.5 : 0.6)) return null;
+      if (fragment.length < 5 || fragment.length / canonical.length < 0.5 || !distinctive(fragment) || calendarNumber(fragment)) return null;
       const sources = actualSources(fragment);
       if (settings.exactConfirmation) {
         const exactSources = exactSerialSources(target);
@@ -139,6 +141,45 @@
     const partialMatches = Array.from(new Set(observedSerialEvidence.map((proof) => normalizeSerial(proof.serial))))
       .map((fragment) => resolvePartialSerial(fragment)).filter(Boolean);
     const partialTools = tools.filter((candidate) => partialMatches.some((match) => match.tool.id === candidate.id));
+    // This separate channel contains visible groups on one serial label,
+    // with a real erased gap proved by the parser's pixel/label context.
+    // Do not delete arbitrary characters from a wrong whole serial or join
+    // unrelated numbers from different lines to manufacture a match.
+    function groupValue(proof) {
+      if (!proof || proof.learned || proof.gapVerified !== true || !high(proof.confidence)
+        || !['standalone', 'labelled'].includes(proof.kind) || !Array.isArray(proof.groups)
+        || proof.groups.length < 2 || proof.groups.length > 3 || new Set(proofSources(proof)).size < 1) return null;
+      const groups = proof.groups.map(normalizeSerial), visible = groups.join('');
+      if (groups.some((group, index) => !/^\d{2,20}$/.test(group) || group !== String(proof.groups[index]))
+        || visible.length < 6 || visible.length > 20 || !/\d/.test(visible) || !distinctive(visible) || calendarNumber(visible)) return null;
+      return groups;
+    }
+    function containsGroups(canonical, groups) {
+      if (groups.join('').length / canonical.length < 0.6 || groups.join('').length >= canonical.length) return false;
+      function after(index, start) {
+        if (index === groups.length) return true;
+        let found = canonical.indexOf(groups[index], start);
+        while (found !== -1) {
+          if (after(index + 1, found + groups[index].length + 1)) return true;
+          found = canonical.indexOf(groups[index], found + 1);
+        }
+        return false;
+      }
+      return after(0, 0);
+    }
+    const groupReadings = (Array.isArray(identity.observedSerialGroups) ? identity.observedSerialGroups : [])
+      .map((proof) => ({ proof, groups: groupValue(proof) })).filter((reading) => reading.groups)
+      .map((reading) => {
+        // Keep a collision as contrary evidence; ignoring the groups could
+        // otherwise auto-select another row whose shorter complete serial is
+        // the parser's concatenation of these separated visible characters.
+        const blocked = tools.some((candidate) => [reading.groups.join(''), ...reading.groups].includes(normalizeSerial(candidate.serial)));
+        return { ...reading, confirmed: new Set(proofSources(reading.proof)).size >= 2,
+          candidates: blocked ? [] : tools.filter((candidate) => containsGroups(normalizeSerial(candidate.serial), reading.groups)) };
+      });
+    const groupMatches = groupReadings.filter((reading) => reading.confirmed && reading.candidates.length === 1 && clearDatePair
+      && addMonths(dates.last, monthInterval(reading.candidates[0])) === dates.due);
+    const groupTools = tools.filter((candidate) => groupMatches.some((reading) => reading.candidates[0].id === candidate.id));
     function ownerFragmentState() {
       const names = Array.from(new Set(tools.filter(exactOwner).map((candidate) => normalizeName(candidate.name))));
       const empty = { matches: [], target: null, blocked: false };
@@ -186,6 +227,8 @@
       // reconciled with an explicit S/N reading. Other full serial conflicts stay.
       if (ownerFragmentMatch && ownerFragmentMatch.target.id === target.id
         && ownerFragmentMatch.matches.some((match) => match.fragment === normalizeSerial(serial))) return true;
+      if (groupMatches.some((reading) => reading.candidates[0].id === target.id
+        && [...reading.groups, reading.groups.join('')].includes(normalizeSerial(serial)))) return true;
       const partial = resolvePartialSerial(serial) || resolvePartialSerial(serial, { exactConfirmation: true });
       return !!partial && partial.tool.id === target.id;
     };
@@ -209,8 +252,10 @@
       output.observedSerial = numericMatches.find((proof) => proof.toolId === tool.id).observedSerial;
     }
     else if (numericTools.length > 1) reject('사진의 번호가 서로 다른 숫자 형식의 엑셀 시리얼을 가리킵니다.');
-    else if (partialTools.length === 1) { tool = partialTools[0]; output.matchMethod = 'partial-serial'; }
+    else if (partialTools.length === 1) { tool = partialTools[0]; output.matchMethod = 'partial-serial'; output.observedSerial = partialMatches.find((match) => match.tool.id === tool.id).fragment; }
     else if (partialTools.length > 1) reject('부분 시리얼 번호가 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
+    else if (groupTools.length === 1) { tool = groupTools[0]; output.matchMethod = 'partial-serial-groups'; output.observedSerial = groupMatches.find((reading) => reading.candidates[0].id === tool.id).groups.join('…'); }
+    else if (groupTools.length > 1) reject('사진의 시리얼 조각이 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
     else if (ownerFragmentMatch) { tool = ownerFragmentMatch.target; output.matchMethod = 'owner-partial-serial'; }
     else if (nameMatches.length === 1 && tools.filter((other) => normalizeName(other.name) === normalizeName(nameMatches[0].name)).length === 1) {
       tool = nameMatches[0];
@@ -237,6 +282,7 @@
       if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial) && !resolveSerial(serial, tool))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
       if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id || annotationOwner(other.name, tool))) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
+      if (groupReadings.some((reading) => !reading.confirmed || reading.candidates.length !== 1 || reading.candidates[0].id !== tool.id)) reject('지워진 시리얼 조각의 재확인이 필요하거나 다른 항목과도 겹칩니다. 주기만으로 선택하지 않습니다.');
       if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');
       if (/폐기|disposed|retired/i.test(String(tool.due || ''))) reject('폐기 처리된 툴은 자동 변경하지 않습니다.');
       if (Number(tool.photoCount) > 1) reject('이 툴의 사진 위치에 여러 사진이 있어 자동 교체할 수 없습니다.');
