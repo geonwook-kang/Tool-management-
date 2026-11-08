@@ -56,7 +56,8 @@ run('five_digits_below_half_the_registered_length',{records:tools.map(t=>t.id===
 run('four_digits_without_name_are_insufficient',{value:'1930'});
 run('same_literal_fragment_in_another_persons_tool_is_ambiguous',{records:[...tools,{...tools[1],id:'e',serial:'1271930555'}]});
 run('retired_matching_fragment_is_still_ambiguous',{records:[...tools,{...tools[1],id:'e',serial:'1271930555',due:'Disposed'}]});
-run('different_calibration_cycle_cannot_resolve_ambiguous_fragment',{owner:'홍길동',records:[...tools,{...tools[1],id:'e',serial:'1271930555',months:6}]});
+run('clear_owner_filters_other_persons_fragment_even_with_different_cycle',{owner:'홍길동',records:[...tools,{...tools[1],id:'e',serial:'1271930555',months:6}],eligible:true,method:'owner-partial-serial'});
+run('different_calibration_cycle_cannot_resolve_same_owner_ambiguous_fragment',{owner:'홍길동',records:[...tools,{...tools[1],id:'e',name:tools[0].name,serial:'1271930555',months:6}]});
 run('high_confidence_missing_date_pair_is_not_guessed',{date:'교정일자 2027.02'});
 run('fragment_cycle_mismatch_requires_review',{date:'교정일자 2027.02.14\n차기교정예정일자 2027.08.14'});
 run('whole_unknown_serial_is_not_truncated_to_registered_suffix',{value:'887193099'});

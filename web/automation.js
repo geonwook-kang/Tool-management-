@@ -182,21 +182,26 @@
     const groupTools = tools.filter((candidate) => groupMatches.some((reading) => reading.candidates[0].id === candidate.id));
     function ownerFragmentState() {
       const names = Array.from(new Set(tools.filter(exactOwner).map((candidate) => normalizeName(candidate.name))));
-      const empty = { matches: [], target: null, blocked: false };
+      const empty = { matches: [], target: null, blocked: false, knownCollision: false };
       if (names.length !== 1) return empty;
-      const evidence = Array.isArray(identity.observedSerialFragments) ? identity.observedSerialFragments : [];
+      const ownerTools = tools.filter((candidate) => normalizeName(candidate.name) === names[0]);
+      const evidence = (Array.isArray(identity.observedSerialFragments) ? identity.observedSerialFragments : [])
+        .map((proof) => ({ proof, fragment: proof.fragment, fourDigitChannel: true }))
+        .concat(observedSerialEvidence.map((proof) => ({ proof, fragment: proof.serial, fourDigitChannel: false })));
       const observed = new Map();
-      for (const proof of evidence) {
-        const fragment = normalizeSerial(proof.fragment);
-        // This separate channel contains actual four-digit tokens, never a
-        // guessed edit, a substring extracted from a longer reading, or a year.
-        if (proof.learned || !high(proof.confidence) || !/^\d{4}$/.test(fragment) || /^20\d{2}$/.test(fragment)) continue;
+      for (const item of evidence) {
+        const { proof } = item, fragment = normalizeSerial(item.fragment);
+        // First use an actually read registered owner, then compare the raw
+        // fragment only with that owner's tools. Never manufacture a fragment
+        // from a similar wrong whole number, dates, or a learned alias.
+        if (proof.learned || !high(proof.confidence) || !/^[A-Z0-9]{4,20}$/.test(fragment) || !/\d/.test(fragment)
+          || /^20\d{2}$/.test(fragment) || calendarNumber(fragment) || fragment.length >= 5 && !distinctive(fragment)) continue;
+        if (item.fourDigitChannel ? !/^\d{4}$/.test(fragment) : !['standalone', 'labelled', 'workbook'].includes(proof.kind)) continue;
         if (!observed.has(fragment)) observed.set(fragment, new Set());
         for (const source of proofSources(proof)) observed.get(fragment).add(source);
       }
       const fragments = Array.from(observed).filter(([, sources]) => sources.size >= 2).map(([fragment]) => fragment);
       if (!fragments.length) return empty;
-      const ownerTools = tools.filter((candidate) => normalizeName(candidate.name) === names[0]);
       const readings = fragments.map((fragment) => {
         // Keep disposed tools in this comparison. A calibration interval must
         // never break a tie between two serials containing the same fragment.
@@ -206,12 +211,17 @@
           return canonical.length > fragment.length && canonical.includes(fragment);
         });
         return { fragment, candidates, known };
-      });
+      }).filter((reading) => !reading.known || reading.candidates.length);
+      // A complete serial already identifying one of the owner's rows is not
+      // itself partial evidence. Known shorter serials that also occur inside
+      // another owned tool remain a collision and cannot choose that tool.
+      if (!readings.length) return empty;
       const present = readings.filter((reading) => reading.candidates.length);
       const ambiguous = readings.some((reading) => reading.known || reading.candidates.length > 1);
       const targets = Array.from(new Set(present.map((reading) => reading.candidates[0].id)));
       const blocked = ambiguous || targets.length > 1 || (present.length > 0 && present.length !== readings.length);
-      if (blocked || !present.length) return { matches: [], target: null, blocked };
+      if (blocked || !present.length) return { matches: [], target: null, blocked,
+        knownCollision: readings.some((reading) => reading.known && reading.candidates.length) };
       const target = present[0].candidates[0];
       if (present.some((reading) => reading.fragment.length / normalizeSerial(target.serial).length < 0.4)) return empty;
       return { matches: present.map((reading) => ({ tool: target, fragment: reading.fragment })), target, blocked: false };
@@ -223,7 +233,7 @@
       if (numericMatches.some((proof) => proof.toolId === target.id && proof.observedSerial === normalizeSerial(serial))) return true;
       if ((identity.resolvedSerials || []).some((proof) => proof.toolId === target.id && high(proof.confidence)
         && normalizeSerial(proof.alias) === normalizeSerial(serial) && normalizeSerial(proof.serial) === normalizeSerial(target.serial))) return true;
-      // Only this exact, separately verified four-digit observation may be
+      // Only this exact, separately verified owner-scoped observation may be
       // reconciled with an explicit S/N reading. Other full serial conflicts stay.
       if (ownerFragmentMatch && ownerFragmentMatch.target.id === target.id
         && ownerFragmentMatch.matches.some((match) => match.fragment === normalizeSerial(serial))) return true;
@@ -256,7 +266,7 @@
     else if (partialTools.length > 1) reject('부분 시리얼 번호가 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
     else if (groupTools.length === 1) { tool = groupTools[0]; output.matchMethod = 'partial-serial-groups'; output.observedSerial = groupMatches.find((reading) => reading.candidates[0].id === tool.id).groups.join('…'); }
     else if (groupTools.length > 1) reject('사진의 시리얼 조각이 서로 다른 툴을 가리킵니다. 자동 반영을 보류합니다.');
-    else if (ownerFragmentMatch) { tool = ownerFragmentMatch.target; output.matchMethod = 'owner-partial-serial'; }
+    else if (ownerFragmentMatch) { tool = ownerFragmentMatch.target; output.matchMethod = 'owner-partial-serial'; output.observedSerial = ownerFragmentMatch.matches[0].fragment; }
     else if (nameMatches.length === 1 && tools.filter((other) => normalizeName(other.name) === normalizeName(nameMatches[0].name)).length === 1) {
       tool = nameMatches[0];
       const proof = identity.nameMatches.find((match) => match.toolId === tool.id);
@@ -281,6 +291,7 @@
       if (conflictingNames.some((name) => normalizeName(name) !== normalizeName(tool.name) && !resolveName(name, tool))) reject('사진의 이름이 시리얼 번호의 담당자와 다르게 읽혔습니다.');
       if (conflictingSerials.some((serial) => normalizeSerial(serial) !== normalizeSerial(tool.serial) && !resolveSerial(serial, tool))) reject('사진에서 서로 다른 시리얼 번호가 읽혔습니다.');
       if (tools.filter((other) => normalizeSerial(other.serial) === normalizeSerial(tool.serial)).length !== 1) reject('엑셀에 동일한 시리얼 번호가 중복되어 있습니다.');
+      if (ownerFragments.knownCollision) reject('사진의 부분 번호가 등록된 전체 시리얼과도 겹칩니다. 다른 툴을 선택하지 않도록 확인이 필요합니다.');
       if (strongNameMatches.length && !strongNameMatches.some((other) => other.id === tool.id || annotationOwner(other.name, tool))) reject('사진의 이름과 시리얼 번호가 서로 다른 툴을 가리킵니다.');
       if (groupReadings.some((reading) => !reading.confirmed || reading.candidates.length !== 1 || reading.candidates[0].id !== tool.id)) reject('지워진 시리얼 조각의 재확인이 필요하거나 다른 항목과도 겹칩니다. 주기만으로 선택하지 않습니다.');
       if (!tool.name || !normalizeSerial(tool.serial)) reject('엑셀 항목에 담당자 또는 시리얼 번호가 없습니다.');

@@ -862,14 +862,40 @@
         // clipped by Tesseract's approximate word boundary.
         const line = word.lineBox, original = word.bbox;
         const box = line && line.x1 - line.x0 <= (original.x1 - original.x0) * 1.35 && boxHeight(line) <= boxHeight(original) * 1.5 ? unionBox([{ bbox: original }, { bbox: line }]) : original;
-        const h = boxHeight(box), w = box.x1 - box.x0;
-        return { x0: box.x0 - w * 0.05, x1: box.x1 + w * 0.05, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: cleanSerial(word.text).length };
+        const h = boxHeight(box), w = box.x1 - box.x0, margin = w * 0.05;
+        return { x0: box.x0 - margin, x1: box.x1 + margin, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: cleanSerial(word.text).length, glyphHeight: boxHeight(original), observedBox: original, locatorConfidence: word.confidence };
       });
     const groups = spatialSerialGroups(pass).map((proof) => {
       const box = proof.bbox, h = boxHeight(box), w = box.x1 - box.x0;
-      return { x0: box.x0 - w * 0.05, x1: box.x1 + w * 0.05, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: proof.groups.join('').length };
+      return { x0: box.x0 - w * 0.05, x1: box.x1 + w * 0.05, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: proof.groups.join('').length, glyphHeight: h, observedBox: box, locatorConfidence: proof.confidence };
     });
-    return groups.concat(singles).slice(0, 3);
+    const uncertain = [];
+    // Discovery only: a faint last digit may be reported as ')q', O or I.
+    // Use those boxes to re-read the real pixels; they are never converted
+    // into a serial or supplied as expected characters to the recognizer.
+    for (const row of physicalRows(pass.words.filter((word) => word.bbox))) {
+      const rowText = row.map((word) => word.text).join(' ');
+      if (/certificate|report|date|calibration|asset|tool\s*code|성\s*적\s*서|교\s*정/i.test(rowText) && !/serial|시리얼|s\s*\/\s*n/i.test(rowText)) continue;
+      let run = [];
+      const finish = () => {
+        const text = run.map((word) => word.text).join(''), digits = (text.match(/\d/g) || []).length;
+        if (run.length && digits >= 5 && text.length <= 24 && digits / text.length >= 0.5 && !dateOccurrences(text).length) {
+          const box = unionBox(run), h = boxHeight(box), w = box.x1 - box.x0, margin = w * 0.05;
+          uncertain.push({ x0: box.x0 - margin, x1: box.x1 + margin, y0: box.y0 - h * 0.15, y1: box.y1 + h * 0.15, digitCount: digits, glyphHeight: median(run.map((word) => boxHeight(word.bbox))), observedBox: box, locatorConfidence: occurrenceConfidence(run) });
+        }
+        run = [];
+      };
+      for (const word of row) {
+        const previous = run[run.length - 1], digits = (word.text.match(/\d/g) || []).length;
+        if (!/^[A-Z0-9|()[\]{}.,_?\-]+$/i.test(word.text) || digits < 2 || digits / word.text.length < 0.5 || dateOccurrences(word.text).length) { finish();continue; }
+        if (previous && word.bbox.x0 - previous.bbox.x1 > Math.max(boxHeight(word.bbox), boxHeight(previous.bbox)) * 1.2) finish();
+        run.push(word);
+      }
+      finish();
+    }
+    const selected = groups.concat(singles);
+    for (const region of uncertain) if (!selected.some((other) => Math.abs(other.x0 - region.x0) + Math.abs(other.x1 - region.x1) + Math.abs(other.y0 - region.y0) + Math.abs(other.y1 - region.y1) < 8)) selected.push(region);
+    return selected.slice(0, 3);
   }
   function framedIdentityToken(canvas, region) {
     const crop = boundedCrop(canvas, region, false);
@@ -879,6 +905,30 @@
     const padding = 20, framed = document.createElement('canvas');
     framed.width = crop.width + padding * 2; framed.height = crop.height + padding * 2;
     const context = framed.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, framed.width, framed.height); context.drawImage(crop, padding, padding);
+    return framed;
+  }
+  function compactIdentityToken(canvas, region, targetHeight = 60, contrast = false) {
+    const glyphHeight = Number(region.glyphHeight) || (region.y1 - region.y0) / 1.3;
+    if (!(glyphHeight > 65)) return null;
+    const crop = boundedCrop(canvas, region, false, Math.min(1, targetHeight / glyphHeight));
+    if (!crop) return null;
+    // Work on the original gray pixels. A large, softly focused glyph often
+    // segments better at normal text size; binarization has already lost its
+    // faint stroke detail and is not the source for this independent read.
+    if (contrast) {
+      const context = crop.getContext('2d', { willReadFrequently: true }), pixels = context.getImageData(0, 0, crop.width, crop.height), histogram = new Uint32Array(256), count = pixels.data.length / 4;
+      for (let at = 0; at < pixels.data.length; at += 4) histogram[Math.round((pixels.data[at] + pixels.data[at + 1] + pixels.data[at + 2]) / 3)]++;
+      let low = 0, high = 255, total = 0;
+      while (low < 254 && total + histogram[low] < count * 0.01) total += histogram[low++];
+      total = 0;while (high > low + 1 && total + histogram[high] < count * 0.01) total += histogram[high--];
+      for (let at = 0; at < pixels.data.length; at += 4) {
+        const value = Math.max(0, Math.min(255, ((pixels.data[at] + pixels.data[at + 1] + pixels.data[at + 2]) / 3 - low) * 255 / Math.max(1, high - low)));
+        pixels.data[at] = pixels.data[at + 1] = pixels.data[at + 2] = value;
+      }
+      context.putImageData(pixels, 0, 0);
+    }
+    const padding = 20, framed = document.createElement('canvas');framed.width = crop.width + padding * 2;framed.height = crop.height + padding * 2;
+    const frame = framed.getContext('2d');frame.fillStyle = '#fff';frame.fillRect(0, 0, framed.width, framed.height);frame.drawImage(crop, padding, padding);
     return framed;
   }
   function identityLines(canvas) {
@@ -954,8 +1004,9 @@
       const native = canvas.nativeCanvas || canvas;
       // Large camera pictures spend most OCR time on the room and metal.
       // Detect paper and ruled cells in pixels before reading that background.
-      // Small pictures and wide SMAX screens retain the normal document route.
-      if (fast && Math.max(native.width, native.height) >= 1800) {
+      // Medium-sized camera pictures use the same pixel proposals. Wide SMAX
+      // screenshots retain their field-labelled document route.
+      if (fast && Math.max(native.width, native.height) >= 1000 && native.height >= native.width * 0.65) {
         const regions = fast.regions(canvas), tags = regions.filter((region) => region.kind === 'tag'), table = regions.find((region) => region.kind === 'dates');
         if (tags.length && table) {
           const quickBegan = Date.now(), quickBudget = 20000, quickInputs = new WeakMap();
@@ -1005,6 +1056,7 @@
           if (dateReads.filter(clearDateRead).length < 2) {
             for (const binary of [false, true]) await readDate(binary, '11', 'date-probe-fast-' + (binary ? 'binary' : 'gray'));
           }
+          if (dateReads.filter(clearDateRead).length === 1) await readDate(true, '6', 'date-probe-fast-binary-lines');
           // Very large native characters can segment poorly. Re-read their
           // real pixels at half size, without changing or completing text.
           if (dateReads.filter(clearDateRead).length < 2 && rowHeight > 100) {
@@ -1022,12 +1074,36 @@
             // Re-read visible number glyphs before a broad room/background
             // scan. The locator's text never becomes the recognizer's input.
             const locators = passes.filter((pass) => /^identity-probe-fast-(?:binary|gray)-/.test(pass.source))
-              .flatMap((pass) => identityTokenRegions(pass).map((region) => ({ pass, region }))).slice(0, 3);
+              .flatMap((pass) => identityTokenRegions(pass).map((region) => ({ pass, region })))
+              .sort((a, b) => Number((a.region.locatorConfidence || 0) < 25) - Number((b.region.locatorConfidence || 0) < 25)).slice(0, 3);
             for (let index = 0; index < locators.length; index++) {
               const { pass, region } = locators[index], input = framedIdentityToken(quickInputs.get(pass), region);
               for (const psm of ['7', '13']) {
                 if (!await readQuick(tags[0], false, psm, 'identity-probe-fast-token-' + index + '-' + psm, input)) break;
                 quick = current();if (strongIdentity(quick)) break;
+                if (psm === '7') {
+                  const tagIndex = Number(/-(\d+)$/.exec(pass.source)?.[1]), tag = tags[tagIndex];
+                  let gray = tag && fast.prepare(canvas, tag, { binary: false }), grayRegion = region;
+                  const observed = region.observedBox, prepared = quickInputs.get(pass);
+                  if (tag && observed && prepared && (observed.x0 <= 22 || observed.y0 <= 22 || observed.x1 >= prepared.width - 22 || observed.y1 >= prepared.height - 22)) {
+                    // A light-component proposal can cut through a digit.
+                    // Return to original pixels before retrying that edge;
+                    // enlarging an already-clipped prepared crop cannot help.
+                    const ox = Math.max(0, tag.bbox.x0) - 20, oy = Math.max(0, tag.bbox.y0) - 20, h = boxHeight(observed);
+                    // Extend the clipped side by one narrow glyph; preserve
+                    // the other side's observed boundary so a metal/paper
+                    // edge is not mistaken for an additional digit.
+                    const left = observed.x0 <= 22 ? h * 0.35 : h * 0.066, right = observed.x1 >= prepared.width - 22 ? h * 0.35 : h * 0.066;
+                    gray = native;grayRegion = { ...region, x0: observed.x0 + ox - left, x1: observed.x1 + ox + right, y0: observed.y0 + oy - h * 0.15, y1: observed.y1 + oy + h * 0.15 };
+                  }
+                  for (const variant of [{ height: 60 }, { height: 48 }, { height: 72 }, { height: 60, contrast: true }]) {
+                    const compact = gray && compactIdentityToken(gray, grayRegion, variant.height, variant.contrast);
+                    if (!compact) break;
+                    if (!await readQuick(tag, false, '7', 'identity-probe-fast-compact-' + index + '-' + variant.height + (variant.contrast ? '-contrast' : ''), compact)) break;
+                    quick = current();if (strongIdentity(quick)) break;
+                  }
+                  if (strongIdentity(quick)) break;
+                }
               }
               if (strongIdentity(quick)) break;
             }

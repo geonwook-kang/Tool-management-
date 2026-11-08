@@ -11,7 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "7.0"
+VERSION = "7.1"
 
 
 def main():

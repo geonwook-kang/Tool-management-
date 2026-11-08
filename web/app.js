@@ -8,9 +8,9 @@ document.body.classList.toggle('tool-shared',ToolSources.inspect().sharedEntry);
 document.body.classList.toggle('tool-pc',ToolSources.inspect().pcEntry);
 if(ToolSources.inspect().pcEntry){
  $('take-photo').hidden=true;$('choose-photos').textContent='사진 선택 · 여러 장';
- document.querySelector('main>p.muted').textContent='CALIBRATION WORKSPACE · PC 마무리 버전 7.0';
+ document.querySelector('main>p.muted').textContent='CALIBRATION WORKSPACE · PC 마무리 버전 7.1';
  document.querySelector('h1').textContent='시리얼로 찾고, 엑셀에 자동 저장.';
- document.querySelector('h1+p').textContent='이름 없이 시리얼만 있어도 찾습니다. 일부가 지워진 번호는 남은 숫자를 전체 툴 목록과 대조합니다.';
+ document.querySelector('h1+p').textContent='시리얼·부분 번호로 툴을 찾고, 담당자 이름은 해당 엑셀 행에서 자동으로 가져옵니다.';
  document.querySelector('header .tag').textContent='PC · 오프라인 사진 인식';
  document.querySelector('.mobile-capture h2').textContent='02 툴 사진 · SMAX 화면 올리기';
  document.querySelector('.mobile-capture p').textContent='시리얼과 교정일·차기일이 보이는 사진을 선택하세요. 이름 표지는 선택 사항입니다.';
@@ -273,7 +273,7 @@ function applyOCR(p,result){
  p.result=result;p.error=null;p.edited=false;p.manualEntry=false;p.assessment=ToolAutomation.assess(state.model,result);
  const match=state.model.tools.find(t=>t.id===p.assessment.toolId)||(result.candidateIds?.length===1?state.model.tools.find(t=>t.id===result.candidateIds[0]):null);
  p.photoKindOverride=null;const smax=/smax/i.test(result.documentType||'');
- p.draft={toolId:match?.id||'',name:(smax?p.assessment.name:result.name)||match?.name||'',serial:(smax?p.assessment.serial:result.serial)||match?.serial||'',last:p.assessment.last||result.last||'',due:p.assessment.due||result.due||'',photoKind:p.assessment.photoKind||(smax?'smax':'calibration'),updateDue:smax?!!p.assessment.updateDue:true};p.review=null;p.approval=null;
+ p.draft={toolId:match?.id||'',name:p.assessment.name||match?.name||result.name||'',serial:p.assessment.serial||match?.serial||result.serial||'',last:p.assessment.last||result.last||'',due:p.assessment.due||result.due||'',photoKind:p.assessment.photoKind||(smax?'smax':'calibration'),updateDue:smax?!!p.assessment.updateDue:true};p.review=null;p.approval=null;
  if(p.sharedConflict){p.edited=true;p.error='다른 사용자가 같은 툴을 변경했습니다. 최신 엑셀의 사진과 날짜를 확인한 뒤 보정한 내용 반영을 눌러 주세요.';p.assessment={...p.assessment,eligible:false,reasons:[p.error]};}
 }
 function reconcile(){
@@ -347,7 +347,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:ToolSources.inspect().pcEntry?'7.0':'6.0',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:ToolSources.inspect().pcEntry?'7.1':'6.0',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,

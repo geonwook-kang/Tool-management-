@@ -81,7 +81,7 @@ def download_report(page, temporary, label, original, other):
     assert other.name.encode() not in raw
     report = json.loads(raw)
     assert set(report) == {"schema", "programVersion", "createdAt", "photo", "ocr", "assessment", "processing"}
-    expected_version = "7.0" if page.evaluate("ToolSources.inspect().pcEntry") else "6.0"
+    expected_version = "7.1" if page.evaluate("ToolSources.inspect().pcEntry") else "6.0"
     assert report["schema"] == 1 and report["programVersion"] == expected_version
     assert report["photo"]["entry"] == "original.jpg"
     assert report["photo"]["name"] == original.name

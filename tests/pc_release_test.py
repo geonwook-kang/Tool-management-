@@ -88,7 +88,8 @@ def assert_pc(page):
         assert page.locator(selector).is_hidden(), selector
     for value in ["microsoft365", "sharepoint", "shared"]:
         assert page.locator('#source-mode option[value="' + value + '"]').evaluate("element=>element.hidden&&element.disabled"), value
-    assert "이름 없이" in page.locator("h1+p").inner_text()
+    description = page.locator("h1+p").inner_text()
+    assert "시리얼·부분 번호" in description and "엑셀 행" in description
 
 
 def main():

@@ -118,10 +118,16 @@ def policy_checks(page, url, workbook):
         run('leading_letter_o_is_not_zero',{passes:partial('O'+serial.slice(1)),observed:'O'+serial.slice(1)});
         const collision={...target,id:'synthetic-partial-collision',serial:'99'+fragment,name:other.name,months:12,
             interval:'12',cycle:'MONTHS',due:'2027-12-22'};
-        run('global_collision_cannot_be_removed_by_owner_or_cycle',{
-            owner:true,tools:[...model.tools,collision]});
-        run('disposed_tool_still_counts_for_global_uniqueness',{
-            owner:true,tools:[...model.tools,{...collision,due:'폐기'}]});
+        run('clear_owner_filters_another_persons_partial_collision',{
+            owner:true,tools:[...model.tools,collision],eligible:true,method:'owner-partial-serial'});
+        run('clear_owner_filters_another_persons_retired_partial_collision',{
+            owner:true,tools:[...model.tools,{...collision,due:'폐기'}],eligible:true,method:'owner-partial-serial'});
+        run('same_owner_partial_collision_cannot_be_removed_by_cycle',{
+            owner:true,tools:[...model.tools,{...collision,name:target.name}]});
+        run('same_owner_retired_partial_collision_still_counts',{
+            owner:true,tools:[...model.tools,{...collision,name:target.name,due:'폐기'}]});
+        run('without_owner_other_persons_partial_collision_stays_ambiguous',{
+            tools:[...model.tools,collision]});
         run('fragment_that_is_another_tools_full_serial_is_not_partial',{
             owner:true,tools:[...model.tools,{...collision,serial:fragment}]});
         const longSerial='A1B2C3D4E5F6',longTools=model.tools.map(tool=>tool.id===target.id?{...tool,serial:longSerial}:tool);
@@ -131,8 +137,10 @@ def policy_checks(page, url, workbook):
             passes:partial(longSerial.slice(0,8)),tools:longTools,observed:longSerial.slice(0,8),expectedSerial:longSerial,eligible:true});
         run('owner_supports_half_of_longer_alphanumeric_serial',{
             passes:partial(longSerial.slice(0,6)),owner:true,tools:longTools,observed:longSerial.slice(0,6),expectedSerial:longSerial,eligible:true});
-        run('owner_five_digits_below_fifty_percent_are_insufficient',{
-            passes:partial(longSerial.slice(0,5)),owner:true,tools:longTools,observed:longSerial.slice(0,5),expectedSerial:longSerial});
+        run('owner_five_characters_above_forty_percent_are_supported',{
+            passes:partial(longSerial.slice(0,5)),owner:true,tools:longTools,observed:longSerial.slice(0,5),expectedSerial:longSerial,eligible:true,method:'owner-partial-serial'});
+        run('owner_four_characters_below_forty_percent_are_insufficient',{
+            passes:partial(longSerial.slice(0,4)),owner:true,tools:longTools,observed:longSerial.slice(0,4),expectedSerial:longSerial});
         run('independent_full_read_resolves_same_candidate_partial',{
             passes:[...partial().slice(0,1),pass('Serial: '+serial,'identity-crop-full')],eligible:true,method:'serial'});
         run('full_and_partial_from_same_source_are_not_independent',{
