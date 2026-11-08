@@ -1,6 +1,6 @@
-# 툴 검교정 매니저 7.1 — PC 마무리 버전
+# 툴 검교정 매니저 7.2 — PC 마무리 버전
 
-**[PC 프로그램 열기](https://geonwook-kang.github.io/Tool-management-/pc.html?v=7.1)** · **[PC용 ZIP 받기](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-PC-Final-7.1.zip)** · **[사용 안내](https://geonwook-kang.github.io/Tool-management-/pc-guide.html)**
+**[PC 프로그램 열기](https://geonwook-kang.github.io/Tool-management-/pc.html?v=7.2)** · **[PC용 ZIP 받기](https://github.com/geonwook-kang/Tool-management-/raw/refs/heads/tool-manager-download/downloads/Tool-Manager-PC-Final-7.2.zip)** · **[사용 안내](https://geonwook-kang.github.io/Tool-management-/pc-guide.html)**
 
 PC에서 관리 엑셀을 한 번 연결하고 툴 라벨 사진·SMAX 캡처를 올립니다. 이름이 안 보이더라도 고유 시리얼로 등록된 툴을 찾으며, 마모로 일부 숫자가 지워졌을 때는 실제로 읽힌 번호 조각을 전체 엑셀 목록과 대조합니다. 이번 버전은 PC 작업을 중심으로 정리했습니다.
 
@@ -29,6 +29,8 @@ PC에서 관리 엑셀을 한 번 연결하고 툴 라벨 사진·SMAX 캡처를
 7.1은 크게 촬영된 숫자를 원본 회색조에서 측정한 글자 크기로 축소해 다시 읽습니다. 흐린 원본 사진을 그대로 비교한 검사에서 7.0의 22.4초·미매칭이 4.1초·자동 저장으로 개선됐습니다. 정답 번호를 OCR에 넣거나 잘못 읽힌 끝자리를 엑셀 값으로 치환하지 않습니다. 실제로 전체 번호를 읽은 뒤 기존 매칭 검사를 적용합니다.
 
 중간 해상도의 촬영 사진에도 영역 우선 인식을 적용하고, 판독이 불확실하면 같은 숫자 영역을 여러 글자 크기로 확인합니다. 최종 7.1 빌드에서 원본 4개와 크기·흐림·밝기·기울기를 바꾼 변형 사진 8개, 총 12개 실제 OCR·저장 검사를 통과했습니다. 변형 사진의 처리 시간은 같은 테스트 PC에서 2.5–7.6초였습니다. 이름을 먼저 확인한 경우에는 해당 담당자의 목록으로 좁혀 실제 번호 조각을 대조하며, 이름을 읽지 못한 경우에는 전체 등록 목록에서 시리얼을 찾습니다.
+
+7.2는 다른 담당자의 멀티미터·토크렌치에 해상도 축소, 약한 흐림, 어두운 밝기, 좌우 기울기를 적용한 10가지 조건과 앞서 실패했던 흐린 원본을 실제 OCR부터 자동 저장까지 검사했습니다. 날짜만 불확실하면 전체 사진 대신 실제 날짜 두 줄을 재확인하고, 어두운 종이는 줄별 밝기에 맞춰 대비를 조정합니다. 사진 테두리에서 잘린 번호는 원본 영역을 다시 읽습니다. 엑셀에 숫자 형식으로 저장된 시리얼의 앞자리 0 차이도 기존 전체 목록 충돌 검사에 포함합니다. 날짜나 번호를 정답 문자열로 OCR에 전달하지 않으며, 서로 다른 실제 번호·날짜나 중복 후보는 계속 보류합니다.
 
 ## 날짜와 사진 반영
 

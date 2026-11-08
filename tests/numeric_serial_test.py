@@ -150,7 +150,9 @@ def main():
           }return out;
         }''')
         assert metadata_variants=={'numeric':True,'inline':False,'formula':False,'exponent':False},metadata_variants
-        initial=seed_file(page,args.workbook);page.locator('#connect-onedrive').click();page.wait_for_function('ToolApp.state.source.connected&&ToolApp.state.model');ready(page)
+        initial=seed_file(page,args.workbook)
+        entry='#quick-workbook' if page.evaluate('ToolSources.inspect().pcEntry') else '#connect-onedrive'
+        page.locator(entry).click();page.wait_for_function('ToolApp.state.source.connected&&ToolApp.state.model');ready(page)
         page.evaluate("""()=>{ToolOCR.recognize=async(file,tools)=>{const text='Serial: 0218800584\\n교정일자 2027.06.25\\n차기교정예정일자 2027.12.25';return ToolOCR.parse(text,tools,{passes:[{text,source:'original',confidence:95}]});};}""")
         page.locator('#photos').set_input_files(photo);page.wait_for_function('ToolApp.state.photos.length===1&&!ToolApp.state.busy&&!ToolApp.state.preparing&&!ToolApp.state.source.saving')
         saved=page.evaluate("""async()=>{const p=ToolApp.state.photos[0],b=await ToolConnectedFile.takeBackup();return {assessment:p.assessment,saved:!!p.saved,saveCount:ToolApp.state.source.saveCount,backupHash:await testHash(b.bytes),evidence:p.result.identityEvidence,preparedPhotoHash:await testHash(p.image.photoBytes)};}""")

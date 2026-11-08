@@ -401,10 +401,15 @@
       }
       });
     });
-    const hasConfidentSerial = numbered.some((tool) => matchingPasses.some((pass) => { const proof = acceptedProof(pass, tool.serial, true); return proof && proof.confidence != null && proof.confidence >= 70; }));
+    const numericEvidence = serialEvidence.concat(probeSerials.map((item) => ({ serial: item.serial, kind: 'standalone', confidence: item.confidence,
+      passSources: [item.pass.source], sourceReadings: [{ source: item.pass.source, confidence: item.confidence }] })));
+    const numericProofs = global.ToolAutomation && typeof global.ToolAutomation.numericSerialMatches === 'function'
+      ? global.ToolAutomation.numericSerialMatches(tools, { observedSerialEvidence: numericEvidence }) : [];
+    const numericTargets = unique(numericProofs.map((proof) => proof.toolId)), numericValues = new Set(numericProofs.map((proof) => cleanSerial(proof.observedSerial)));
+    const hasConfidentSerial = numericTargets.length === 1 || numbered.some((tool) => matchingPasses.some((pass) => { const proof = acceptedProof(pass, tool.serial, true); return proof && proof.confidence != null && proof.confidence >= 70; }));
     unique(probeSerials.map((item) => item.serial)).forEach((serial) => {
       const observations = probeSerials.filter((item) => item.serial === serial);
-      if (!hasConfidentSerial || unique(observations.map((item) => item.pass.source)).length >= 2) observations.forEach((item) => { observedSerials.push(serial); observeSerial(serial, 'standalone', item.pass, item.confidence); });
+      if (numericValues.has(serial) || !hasConfidentSerial || unique(observations.map((item) => item.pass.source)).length >= 2) observations.forEach((item) => { observedSerials.push(serial); observeSerial(serial, 'standalone', item.pass, item.confidence); });
     });
     function bestConfidence(value, kind) {
       const values = matchingPasses.map((pass) => acceptedProof(pass, value, kind === 'serial')).filter(Boolean).map((proof) => proof.confidence).filter((value) => value != null);
@@ -931,6 +936,29 @@
     const frame = framed.getContext('2d');frame.fillStyle = '#fff';frame.fillRect(0, 0, framed.width, framed.height);frame.drawImage(crop, padding, padding);
     return framed;
   }
+  function dateTokenColumn(canvas, pass, binary = false) {
+    // Even a low-confidence complete date can locate its actual glyphs.
+    // This function creates pixels only; approval still needs two fresh,
+    // high-confidence date-pair readings through the normal evidence gate.
+    const readings = spatialDates(pass);
+    if (unique(readings.map((reading) => reading.value)).length !== 2 || readings.length !== 2) return null;
+    const scale = Math.min(1.5, 60 / Math.max(1, median(readings.map((reading) => boxHeight(reading.bbox)))));
+    const strips = readings.sort((a, b) => a.bbox.y0 - b.bbox.y0).map((reading) => {
+      const box = reading.bbox, h = boxHeight(box), w = box.x1 - box.x0;
+      return boundedCrop(canvas, { x0: box.x0 - w * 0.04, x1: box.x1 + w * 0.04, y0: box.y0 - h * 0.18, y1: box.y1 + h * 0.18 }, false, scale);
+    });
+    if (strips.some((strip) => !strip)) return null;
+    // Grey label paper against a fresh white frame can hide the ink from
+    // segmentation. Estimate ink/paper contrast inside each real row before
+    // adding the frame, so surrounding whitespace cannot set the threshold.
+    if (binary) strips.forEach(binaryDateCells);
+    const padding = 20, gap = 30, output = document.createElement('canvas');
+    output.width = Math.max(...strips.map((strip) => strip.width)) + padding * 2;
+    output.height = strips.reduce((height, strip) => height + strip.height, 0) + padding * 2 + gap;
+    const context = output.getContext('2d');context.fillStyle = '#fff';context.fillRect(0, 0, output.width, output.height);
+    let y = padding;for (const strip of strips) { context.drawImage(strip, padding, y);y += strip.height + gap; }
+    return output;
+  }
   function identityLines(canvas) {
     const lines = [];
     try {
@@ -1065,6 +1093,23 @@
             for (const psm of ['6', '11']) await readDate(false, psm, 'date-probe-fast-compact-' + psm, compact);
           }
           if (dateReads.filter(clearDateRead).length < 2 && straight && !curveFirst) await readCurve();
+          const single = dateReads.filter(clearDateRead);
+          if (single.length < 2) {
+            // A clear row is a pixel locator, never an expected calendar
+            // value. Independently read its real date glyphs once more.
+            const locator = single[0] || dateReads.find((pass) => {
+              const rows = spatialDates(pass);return rows.length === 2 && unique(rows.map((row) => row.value)).length === 2;
+            });
+            if (locator) for (const binary of [false, true]) {
+              const focused = dateTokenColumn(quickInputs.get(locator), locator, binary);
+              if (!focused) break;
+              for (const psm of ['6', '11']) {
+                await readDate(false, psm, 'date-probe-fast-token-' + (binary ? 'binary-' : '') + psm, focused);
+                if (dateReads.filter(clearDateRead).length >= 2) break;
+              }
+              if (dateReads.filter(clearDateRead).length >= 2) break;
+            }
+          }
           // A proposal is not date evidence. Promote only complete, confident
           // independent readings; never fill a missing day from Excel/a sample.
           const complete = dateReads.filter(clearDateRead);
@@ -1078,14 +1123,11 @@
               .sort((a, b) => Number((a.region.locatorConfidence || 0) < 25) - Number((b.region.locatorConfidence || 0) < 25)).slice(0, 3);
             for (let index = 0; index < locators.length; index++) {
               const { pass, region } = locators[index], input = framedIdentityToken(quickInputs.get(pass), region);
-              for (const psm of ['7', '13']) {
-                if (!await readQuick(tags[0], false, psm, 'identity-probe-fast-token-' + index + '-' + psm, input)) break;
-                quick = current();if (strongIdentity(quick)) break;
-                if (psm === '7') {
-                  const tagIndex = Number(/-(\d+)$/.exec(pass.source)?.[1]), tag = tags[tagIndex];
-                  let gray = tag && fast.prepare(canvas, tag, { binary: false }), grayRegion = region;
-                  const observed = region.observedBox, prepared = quickInputs.get(pass);
-                  if (tag && observed && prepared && (observed.x0 <= 22 || observed.y0 <= 22 || observed.x1 >= prepared.width - 22 || observed.y1 >= prepared.height - 22)) {
+              const tagIndex = Number(/-(\d+)$/.exec(pass.source)?.[1]), tag = tags[tagIndex];
+              let gray = tag && fast.prepare(canvas, tag, { binary: false }), grayRegion = region;
+              const observed = region.observedBox, prepared = quickInputs.get(pass);
+              const clipped = !!(tag && observed && prepared && (observed.x0 <= 22 || observed.y0 <= 22 || observed.x1 >= prepared.width - 22 || observed.y1 >= prepared.height - 22));
+              if (clipped) {
                     // A light-component proposal can cut through a digit.
                     // Return to original pixels before retrying that edge;
                     // enlarging an already-clipped prepared crop cannot help.
@@ -1095,7 +1137,15 @@
                     // edge is not mistaken for an additional digit.
                     const left = observed.x0 <= 22 ? h * 0.35 : h * 0.066, right = observed.x1 >= prepared.width - 22 ? h * 0.35 : h * 0.066;
                     gray = native;grayRegion = { ...region, x0: observed.x0 + ox - left, x1: observed.x1 + ox + right, y0: observed.y0 + oy - h * 0.15, y1: observed.y1 + oy + h * 0.15 };
-                  }
+              }
+              // Repeatedly reading a provably clipped canvas creates stable
+              // false digits. Start from complete source pixels in that case.
+              for (const psm of clipped ? ['7'] : ['7', '13']) {
+                if (!clipped) {
+                  if (!await readQuick(tags[0], false, psm, 'identity-probe-fast-token-' + index + '-' + psm, input)) break;
+                  quick = current();if (strongIdentity(quick)) break;
+                }
+                if (psm === '7') {
                   for (const variant of [{ height: 60 }, { height: 48 }, { height: 72 }, { height: 60, contrast: true }]) {
                     const compact = gray && compactIdentityToken(gray, grayRegion, variant.height, variant.contrast);
                     if (!compact) break;

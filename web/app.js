@@ -8,7 +8,7 @@ document.body.classList.toggle('tool-shared',ToolSources.inspect().sharedEntry);
 document.body.classList.toggle('tool-pc',ToolSources.inspect().pcEntry);
 if(ToolSources.inspect().pcEntry){
  $('take-photo').hidden=true;$('choose-photos').textContent='사진 선택 · 여러 장';
- document.querySelector('main>p.muted').textContent='CALIBRATION WORKSPACE · PC 마무리 버전 7.1';
+ document.querySelector('main>p.muted').textContent='CALIBRATION WORKSPACE · PC 마무리 버전 7.2';
  document.querySelector('h1').textContent='시리얼로 찾고, 엑셀에 자동 저장.';
  document.querySelector('h1+p').textContent='시리얼·부분 번호로 툴을 찾고, 담당자 이름은 해당 엑셀 행에서 자동으로 가져옵니다.';
  document.querySelector('header .tag').textContent='PC · 오프라인 사진 인식';
@@ -347,7 +347,7 @@ async function downloadDiagnostics(){
  const button=$('download-diagnostics');button.disabled=true;
  try{
   const original=await p.file.arrayBuffer(),extension=/\.(jpe?g|png|webp|heic|heif|avif)$/i.exec(p.file.name)?.[1].toLowerCase()||'bin';
-  const r=p.result||{},report={schema:1,programVersion:ToolSources.inspect().pcEntry?'7.1':'6.0',createdAt:new Date().toISOString(),
+  const r=p.result||{},report={schema:1,programVersion:ToolSources.inspect().pcEntry?'7.2':'6.0',createdAt:new Date().toISOString(),
    photo:{name:p.file.name,type:p.file.type,size:p.file.size,lastModified:p.file.lastModified,entry:'original.'+extension},
    ocr:{text:r.text||'',documentType:r.documentType||'calibration',smaxEvidence:r.smaxEvidence||null,confidence:r.confidence??null,failed:!!r.failed,cancelled:!!r.cancelled,
     engineFailure:!!r.engineFailure,identityRecoveryIncomplete:!!r.identityRecoveryIncomplete,
